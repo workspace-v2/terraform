@@ -111,6 +111,20 @@ sudo tail -f /var/log/bangjjack-bootstrap.log
   인스턴스 타입 변경은 재시작만 일어납니다.
 - `terraform destroy`는 DB 데이터까지 삭제합니다. 필요하면 먼저 `mysqldump`로 백업하세요.
 
+## 중지 / 시작
+
+안 쓸 때는 환경 단위로 중지합니다. 고정 IP(백엔드, 모니터링)와 내부 IP, 디스크 데이터는 유지됩니다.
+
+```sh
+./scripts/env-power.sh dev stop          # dev 백엔드·DB·Redis 중지
+./scripts/env-power.sh dev start         # DB·Redis 먼저 켜고 백엔드 시작
+./scripts/env-power.sh main status
+./scripts/env-power.sh monitoring stop
+```
+
+중지 중에도 EBS 디스크와 고정 IP(EIP) 요금은 나갑니다. 앱 컨테이너, MySQL, Redis, exporter, Caddy는
+부팅 시 자동으로 올라옵니다.
+
 ## 비용 참고 (서울, 온디맨드, 월 기준 대략)
 
 기본 구성은 t3.small ×4(main backend·DB, dev backend, monitoring), t3.micro ×3(main redis, dev DB·redis),

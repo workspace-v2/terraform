@@ -10,7 +10,8 @@ sysctl -p /etc/sysctl.d/90-redis.conf
 
 sed -i -E '/^(bind|protected-mode|requirepass|maxmemory|maxmemory-policy|appendonly|appendfsync|supervised) /d' /etc/redis/redis.conf
 cat >> /etc/redis/redis.conf <<'EOF'
-bind ${private_ip} 127.0.0.1
+# 재부팅 시 바인딩 실패 방지. 접근 제어는 보안 그룹 + requirepass.
+bind 0.0.0.0
 protected-mode yes
 requirepass ${redis_password}
 maxmemory ${maxmemory_mb}mb
