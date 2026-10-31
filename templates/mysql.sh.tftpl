@@ -6,7 +6,10 @@ ${common}
 # 소형 인스턴스에서 설치가 멈추는 문제를 피한다 (MySQL 동작에는 불필요).
 apt-get install -y --no-install-recommends mysql-server
 
-cat > /etc/mysql/mysql.conf.d/99-${name_prefix}.cnf <<'EOF'
+# mysql.conf.d 는 이름순으로 읽고 나중 값이 이긴다. 기본 mysqld.cnf 의
+# bind-address=127.0.0.1 보다 뒤에 읽히도록 zz- 접두사를 쓰고, 기본값도 제거한다.
+sed -i -E '/^\s*(bind-address|mysqlx-bind-address)\s*=/d' /etc/mysql/mysql.conf.d/mysqld.cnf
+cat > /etc/mysql/mysql.conf.d/zz-${name_prefix}.cnf <<'EOF'
 [mysqld]
 bind-address              = 127.0.0.1,${private_ip}
 mysqlx                    = OFF
