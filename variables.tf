@@ -34,6 +34,15 @@ variable "github_repository" {
   default     = "workspace-v2/Bangjjack-Backend-chatting"
 }
 
+variable "github_oidc_sub_prefix" {
+  description = <<-EOT
+    OIDC sub 클레임 접두사 (불변 subject 사용 시). 확인:
+    gh api repos/<owner>/<repo>/actions/oidc/customization/sub --jq .sub_claim_prefix
+  EOT
+  type        = string
+  default     = "repo:workspace-v2@350646484/Bangjjack-Backend-chatting@1440614699"
+}
+
 variable "create_github_oidc_provider" {
   description = "Create the GitHub Actions OIDC provider. Set false if the AWS account already has one for token.actions.githubusercontent.com."
   type        = bool

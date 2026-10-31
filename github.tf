@@ -79,10 +79,15 @@ data "aws_iam_policy_document" "github_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # 기본 형식(repo:owner/name:...)과 불변 형식(repo:owner@id/name@id:...)을 모두 허용.
+    # 불변 형식은 ID가 고정돼 있어 같은 이름으로 저장소를 다시 만들어도 통과하지 못한다.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/${each.key}"]
+      values = compact([
+        "repo:${var.github_repository}:ref:refs/heads/${each.key}",
+        var.github_oidc_sub_prefix == "" ? "" : "${var.github_oidc_sub_prefix}:ref:refs/heads/${each.key}",
+      ])
     }
   }
 }
