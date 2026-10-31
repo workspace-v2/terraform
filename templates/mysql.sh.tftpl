@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+${common}
+
+apt-get install -y mysql-server
+
+cat > /etc/mysql/mysql.conf.d/99-${name_prefix}.cnf <<'EOF'
+[mysqld]
+bind-address              = 127.0.0.1,${private_ip}
+mysqlx                    = OFF
+skip-name-resolve         = ON
+character-set-server      = utf8mb4
+collation-server          = utf8mb4_unicode_ci
+default-time-zone         = '+09:00'
+max_connections           = 200
+innodb_buffer_pool_size   = ${buffer_pool_mb}M
+innodb_log_buffer_size    = 16M
+binlog_expire_logs_seconds = 259200
+slow_query_log            = ON
+slow_query_log_file       = /var/log/mysql/slow.log
+long_query_time           = 1
+log_queries_not_using_indexes = OFF
+performance_schema        = ON
+EOF
+systemctl enable mysql
+systemctl restart mysql
+
+mysql --protocol=socket -uroot <<'SQL'
+CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${db_user}'@'${backend_ip}' IDENTIFIED BY '${db_password}';
+ALTER USER '${db_user}'@'${backend_ip}' IDENTIFIED BY '${db_password}';
+GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'${backend_ip}';
+CREATE USER IF NOT EXISTS 'exporter'@'127.0.0.1' IDENTIFIED BY '${exporter_password}' WITH MAX_USER_CONNECTIONS 3;
+ALTER USER 'exporter'@'127.0.0.1' IDENTIFIED BY '${exporter_password}';
+GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'127.0.0.1';
+FLUSH PRIVILEGES;
+SQL
+
+# ---- mysqld_exporter ----
+download "https://github.com/prometheus/mysqld_exporter/releases/download/v${exporter_version}/mysqld_exporter-${exporter_version}.linux-amd64.tar.gz" /tmp/mysqld_exporter.tgz
+tar -xzf /tmp/mysqld_exporter.tgz -C /tmp
+install -m 755 /tmp/mysqld_exporter-${exporter_version}.linux-amd64/mysqld_exporter /usr/local/bin/mysqld_exporter
+id mysqld_exporter >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin mysqld_exporter
+
+cat > /etc/mysqld_exporter.cnf <<'EOF'
+[client]
+user=exporter
+password=${exporter_password}
+host=127.0.0.1
+port=3306
+EOF
+chown root:mysqld_exporter /etc/mysqld_exporter.cnf
+chmod 640 /etc/mysqld_exporter.cnf
+
+cat > /etc/systemd/system/mysqld_exporter.service <<'EOF'
+[Unit]
+Description=Prometheus MySQL exporter
+After=network-online.target mysql.service
+
+[Service]
+User=mysqld_exporter
+ExecStart=/usr/local/bin/mysqld_exporter \
+  --config.my-cnf=/etc/mysqld_exporter.cnf \
+  --web.listen-address=:9104 \
+  --collect.info_schema.processlist \
+  --collect.info_schema.innodb_metrics \
+  --collect.info_schema.tables \
+  --collect.info_schema.tablestats \
+  --collect.perf_schema.eventsstatements \
+  --collect.perf_schema.eventswaits \
+  --collect.perf_schema.tableiowaits \
+  --collect.perf_schema.indexiowaits \
+  --collect.perf_schema.tablelocks \
+  --collect.auto_increment.columns \
+  --collect.engine_innodb_status \
+  --collect.binlog_size
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now mysqld_exporter
+
+echo "[bootstrap] done $(date -Is)"

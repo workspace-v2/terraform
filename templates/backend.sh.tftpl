@@ -1,0 +1,53 @@
+#!/bin/bash
+set -euo pipefail
+${common}
+
+apt-get install -y docker.io caddy
+snap install aws-cli --classic || snap refresh aws-cli || true
+
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "50m", "max-file": "5" }
+}
+EOF
+systemctl enable docker
+systemctl restart docker
+
+# Caddy terminates TLS (Let's Encrypt via nip.io) and proxies HTTP + WebSocket to Spring.
+cat > /etc/caddy/Caddyfile <<'EOF'
+${app_domain} {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 5
+		}
+	}
+}
+EOF
+mkdir -p /var/log/caddy && chown caddy:caddy /var/log/caddy
+systemctl enable caddy
+systemctl restart caddy
+
+mkdir -p /etc/${name_prefix} /opt/${name_prefix}
+cat > /etc/${name_prefix}/deploy.conf <<'EOF'
+APP_ENV=${env}
+AWS_REGION=${aws_region}
+PARAM_PATH=${parameter_path}
+CONTAINER_NAME=${name_prefix}
+APP_DIR=/opt/${name_prefix}
+EOF
+
+cat > /usr/local/bin/${name_prefix}-deploy <<'DEPLOY_SCRIPT'
+${deploy_script}
+DEPLOY_SCRIPT
+chmod 755 /usr/local/bin/${name_prefix}-deploy
+sed -i 's#__CONF__#/etc/${name_prefix}/deploy.conf#' /usr/local/bin/${name_prefix}-deploy
+
+# If this host was (re)created after images were already pushed, start the latest one.
+/usr/local/bin/${name_prefix}-deploy "${ecr_repository_url}:${env}-latest" \
+  || echo "[bootstrap] no deployable image yet - waiting for the first CD run"
+
+echo "[bootstrap] done $(date -Is)"

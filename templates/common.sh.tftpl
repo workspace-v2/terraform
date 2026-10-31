@@ -1,0 +1,33 @@
+# ---- common bootstrap (all hosts) ----
+export DEBIAN_FRONTEND=noninteractive
+exec > >(tee -a /var/log/${name_prefix}-bootstrap.log) 2>&1
+echo "[bootstrap] start $(date -Is) host=${hostname}"
+
+hostnamectl set-hostname ${hostname}
+timedatectl set-timezone Asia/Seoul
+
+%{ if swap_mb > 0 ~}
+if [ ! -f /swapfile ]; then
+  fallocate -l ${swap_mb}M /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=10
+  echo 'vm.swappiness=10' > /etc/sysctl.d/90-swappiness.conf
+fi
+%{ endif ~}
+
+for i in 1 2 3 4 5; do apt-get update -y && break || sleep 10; done
+apt-get install -y prometheus-node-exporter curl jq ca-certificates
+# systemd collector exposes per-service state (mysql, redis-server, docker, caddy ...)
+echo 'ARGS="--collector.systemd --collector.processes"' > /etc/default/prometheus-node-exporter
+systemctl enable prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+
+# download <url> <dest>: retrying download from GitHub releases
+download() {
+  for i in 1 2 3 4 5; do curl -fsSL -o "$2" "$1" && return 0; sleep 5; done
+  return 1
+}
+# ---- end common ----

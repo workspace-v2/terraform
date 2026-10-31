@@ -1,0 +1,102 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: ${name_prefix}
+
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels: { env: shared, role: monitoring, instance: monitoring-prometheus }
+
+  # ---- EC2 host metrics (CPU, memory, disk, network, systemd units) ----
+  - job_name: node
+    static_configs:
+%{ for e in environments ~}
+      - targets: ["${e.backend_ip}:9100"]
+        labels: { env: ${e.name}, role: backend, instance: ${e.name}-backend }
+      - targets: ["${e.database_ip}:9100"]
+        labels: { env: ${e.name}, role: database, instance: ${e.name}-database }
+      - targets: ["${e.redis_ip}:9100"]
+        labels: { env: ${e.name}, role: redis, instance: ${e.name}-redis }
+%{ endfor ~}
+      - targets: ["${monitoring_ip}:9100"]
+        labels: { env: shared, role: monitoring, instance: monitoring }
+%{ if load_generator_ip != "" ~}
+      - targets: ["${load_generator_ip}:9100"]
+        labels: { env: shared, role: load-generator, instance: load-generator }
+%{ endif ~}
+
+  # ---- Spring Boot actuator / Micrometer (HTTP, JVM, HikariCP, Tomcat, logback) ----
+  - job_name: spring-actuator
+    metrics_path: /actuator/prometheus
+    static_configs:
+%{ for e in environments ~}
+      - targets: ["${e.backend_ip}:8081"]
+        labels: { env: ${e.name}, role: backend, instance: ${e.name}-backend }
+%{ endfor ~}
+
+  # ---- MySQL ----
+  - job_name: mysql
+    static_configs:
+%{ for e in environments ~}
+      - targets: ["${e.database_ip}:9104"]
+        labels: { env: ${e.name}, role: database, instance: ${e.name}-database }
+%{ endfor ~}
+
+  # ---- Redis ----
+  - job_name: redis
+    static_configs:
+%{ for e in environments ~}
+      - targets: ["${e.redis_ip}:9121"]
+        labels: { env: ${e.name}, role: redis, instance: ${e.name}-redis }
+%{ endfor ~}
+
+  # ---- Synthetic checks: internal health (DB/Redis included) ----
+  - job_name: blackbox-health
+    metrics_path: /probe
+    params: { module: [http_health] }
+    static_configs:
+%{ for e in environments ~}
+      - targets: ["http://${e.backend_ip}:8081/actuator/health"]
+        labels: { env: ${e.name}, role: backend, probe: internal-health }
+%{ endfor ~}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: target
+      - source_labels: [env]
+        target_label: instance
+        replacement: "$1-internal-health"
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  # ---- Synthetic checks: public HTTPS endpoint (TLS, Caddy, cert expiry) ----
+  - job_name: blackbox-public
+    metrics_path: /probe
+    params: { module: [https_public] }
+    static_configs:
+%{ for e in environments ~}
+      - targets: ["https://${e.domain}/"]
+        labels: { env: ${e.name}, role: backend, probe: public-https }
+%{ endfor ~}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: target
+      - source_labels: [env]
+        target_label: instance
+        replacement: "$1-public-https"
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets: ["blackbox:9115"]
+        labels: { env: shared, role: monitoring, instance: monitoring-blackbox }

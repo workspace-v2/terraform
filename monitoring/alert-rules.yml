@@ -1,0 +1,177 @@
+groups:
+  - name: availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "[{{ $labels.env }}] {{ $labels.instance }} ({{ $labels.job }}) 수집 실패"
+          description: "2분 이상 메트릭을 가져오지 못했습니다."
+
+      - alert: HealthCheckFailed
+        expr: probe_success{job="blackbox-health"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "[{{ $labels.env }}] /actuator/health 실패 (DB/Redis 연결 포함)"
+
+      - alert: PublicEndpointDown
+        expr: probe_success{job="blackbox-public"} == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "[{{ $labels.env }}] 공개 HTTPS 엔드포인트 응답 없음 ({{ $labels.target }})"
+
+      - alert: TlsCertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox-public"} - time()) / 86400 < 14
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] TLS 인증서 만료 {{ $value | humanize }}일 전"
+
+  - name: host
+    rules:
+      - alert: HostHighCpu
+        expr: 100 * (1 - avg by (env, instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] {{ $labels.instance }} CPU {{ $value | humanize }}%"
+
+      - alert: HostCpuStealHigh
+        expr: 100 * avg by (env, instance) (rate(node_cpu_seconds_total{mode="steal"}[5m])) > 20
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] {{ $labels.instance }} CPU steal {{ $value | humanize }}% (T3 크레딧 소진 의심)"
+
+      - alert: HostLowMemory
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] {{ $labels.instance }} 가용 메모리 10% 미만"
+
+      - alert: HostDiskAlmostFull
+        expr: 1 - node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|overlay|squashfs"} > 0.85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] {{ $labels.instance }} 루트 디스크 {{ $value | humanizePercentage }} 사용"
+
+      - alert: SystemdServiceFailed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] {{ $labels.instance }} 서비스 실패: {{ $labels.name }}"
+
+  - name: application
+    rules:
+      - alert: AppHigh5xxRate
+        expr: |
+          sum by (env) (rate(http_server_requests_seconds_count{status=~"5..", uri!~"/actuator.*"}[5m]))
+            / sum by (env) (rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "[{{ $labels.env }}] 5xx 비율 {{ $value | humanizePercentage }}"
+
+      - alert: AppSlowResponses
+        expr: |
+          histogram_quantile(0.95, sum by (env, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*|/ws.*"}[5m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] p95 응답시간 {{ $value | humanizeDuration }}"
+
+      - alert: JvmHeapHigh
+        expr: |
+          sum by (env, instance) (jvm_memory_used_bytes{area="heap"})
+            / sum by (env, instance) (jvm_memory_max_bytes{area="heap"} > 0) > 0.90
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] JVM heap {{ $value | humanizePercentage }}"
+
+      - alert: JvmGcPauseHigh
+        expr: sum by (env, instance) (rate(jvm_gc_pause_seconds_sum[5m])) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] GC 일시정지가 초당 {{ $value | humanizeDuration }}"
+
+      - alert: HikariPendingConnections
+        expr: max by (env, instance, pool) (hikaricp_connections_pending) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] DB 커넥션 대기 {{ $value }}건 (pool {{ $labels.pool }})"
+
+      - alert: AppErrorLogsSpike
+        expr: sum by (env) (increase(logback_events_total{level="error"}[5m])) > 20
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] 5분간 ERROR 로그 {{ $value | humanize }}건"
+
+  - name: mysql
+    rules:
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "[{{ $labels.env }}] MySQL 응답 없음"
+
+      - alert: MySQLConnectionsHigh
+        expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] MySQL 연결 {{ $value | humanizePercentage }}"
+
+      - alert: MySQLSlowQueries
+        expr: increase(mysql_global_status_slow_queries[5m]) > 10
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] 5분간 슬로우 쿼리 {{ $value | humanize }}건"
+
+      - alert: MySQLRowLockWaits
+        expr: rate(mysql_global_status_innodb_row_lock_waits[5m]) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] InnoDB row lock 대기 증가"
+
+  - name: redis
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "[{{ $labels.env }}] Redis 응답 없음"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / (redis_memory_max_bytes > 0) > 0.90
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] Redis 메모리 {{ $value | humanizePercentage }}"
+
+      - alert: RedisRejectedConnections
+        expr: increase(redis_rejected_connections_total[5m]) > 0
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] Redis 연결 거부 발생"
+
+      - alert: RedisEvictions
+        expr: increase(redis_evicted_keys_total[5m]) > 0
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "[{{ $labels.env }}] Redis 키 eviction 발생 (maxmemory 도달)"

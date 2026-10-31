@@ -1,0 +1,90 @@
+#!/bin/bash
+set -euo pipefail
+${common}
+
+apt-get install -y docker.io
+systemctl enable --now docker
+
+BASE=/opt/monitoring
+mkdir -p $BASE/prometheus $BASE/blackbox \
+  $BASE/grafana/provisioning/datasources $BASE/grafana/provisioning/dashboards \
+  $BASE/grafana/dashboards
+
+cat > $BASE/prometheus/prometheus.yml <<'MONITORING_EOF'
+${prometheus_config}
+MONITORING_EOF
+
+cat > $BASE/prometheus/alert-rules.yml <<'MONITORING_EOF'
+${alert_rules}
+MONITORING_EOF
+
+cat > $BASE/blackbox/blackbox.yml <<'MONITORING_EOF'
+${blackbox_config}
+MONITORING_EOF
+
+cat > $BASE/grafana/provisioning/datasources/prometheus.yml <<'MONITORING_EOF'
+${grafana_datasource}
+MONITORING_EOF
+
+cat > $BASE/grafana/provisioning/dashboards/provider.yml <<'MONITORING_EOF'
+${grafana_dashboard_provider}
+MONITORING_EOF
+
+cat > $BASE/grafana/dashboards/bangjjack-overview.json <<'MONITORING_EOF'
+${overview_dashboard}
+MONITORING_EOF
+
+# Community dashboards from grafana.com: rewrite their datasource inputs to our
+# provisioned datasource (uid "prometheus"). Failures are non-fatal.
+fetch_dashboard() {
+  local id="$1" name="$2" raw="/tmp/dashboard-$1.json"
+  if download "https://grafana.com/api/dashboards/$id/revisions/latest/download" "$raw"; then
+    jq 'del(.__inputs, .__requires, .__elements) | .id = null' "$raw" \
+      | sed -E 's/\$\{DS_[A-Za-z0-9_-]+\}/prometheus/g' > "$BASE/grafana/dashboards/$name.json" \
+      || echo "[bootstrap] WARN dashboard $id could not be processed"
+  else
+    echo "[bootstrap] WARN dashboard $id download failed"
+  fi
+}
+fetch_dashboard 1860  node-exporter-full
+fetch_dashboard 19004 spring-boot-statistics
+fetch_dashboard 4701  jvm-micrometer
+fetch_dashboard 14057 mysql-exporter
+fetch_dashboard 763   redis-exporter
+fetch_dashboard 7587  blackbox-exporter
+
+chmod -R a+rX $BASE
+
+docker network inspect monitoring >/dev/null 2>&1 || docker network create monitoring
+for c in prometheus blackbox grafana; do docker rm -f $c >/dev/null 2>&1 || true; done
+
+docker run -d --restart unless-stopped --name blackbox --network monitoring \
+  -v $BASE/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro \
+  prom/blackbox-exporter:${blackbox_version} \
+  --config.file=/etc/blackbox_exporter/config.yml
+
+docker run -d --restart unless-stopped --name prometheus --network monitoring \
+  -p 127.0.0.1:9090:9090 \
+  -v $BASE/prometheus:/etc/prometheus:ro \
+  -v prometheus-data:/prometheus \
+  prom/prometheus:${prometheus_version} \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/prometheus \
+  --storage.tsdb.retention.time=30d \
+  --storage.tsdb.retention.size=15GB \
+  --web.enable-lifecycle
+
+docker run -d --restart unless-stopped --name grafana --network monitoring \
+  -p 3000:3000 \
+  -e GF_SECURITY_ADMIN_PASSWORD=${grafana_admin_password} \
+  -e GF_USERS_ALLOW_SIGN_UP=false \
+  -e GF_AUTH_ANONYMOUS_ENABLED=false \
+  -e GF_ANALYTICS_REPORTING_ENABLED=false \
+  -e GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/bangjjack-overview.json \
+  -e TZ=Asia/Seoul \
+  -v grafana-data:/var/lib/grafana \
+  -v $BASE/grafana/provisioning:/etc/grafana/provisioning:ro \
+  -v $BASE/grafana/dashboards:/etc/grafana/dashboards:ro \
+  grafana/grafana:${grafana_version}
+
+echo "[bootstrap] done $(date -Is)"
