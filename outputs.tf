@@ -49,6 +49,14 @@ output "prometheus_tunnel_command" {
   value       = "aws ssm start-session --profile ${var.aws_profile} --region ${var.aws_region} --target ${aws_instance.monitoring.id} --document-name AWS-StartPortForwardingSession --parameters portNumber=9090,localPortNumber=9090"
 }
 
+output "load_generator" {
+  description = "부하 발생기 접속 (SSM). 접속 후: loadtest dev /opt/loadtest/smoke.js"
+  value = var.enable_load_generator ? {
+    instance_id = aws_instance.load_generator[0].id
+    connect     = "aws ssm start-session --profile ${var.aws_profile} --region ${var.aws_region} --target ${aws_instance.load_generator[0].id}"
+  } : null
+}
+
 output "db_passwords" {
   description = "Generated MySQL application passwords per environment."
   value       = { for env in keys(var.environments) : env => random_password.db[env].result }

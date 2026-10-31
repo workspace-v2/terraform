@@ -266,7 +266,16 @@ resource "aws_instance" "load_generator" {
   iam_instance_profile   = aws_iam_instance_profile.base.name
 
   user_data_base64 = base64gzip(templatefile("${path.module}/templates/load-generator.sh.tftpl", {
-    common = local.common_init["load-generator"]
+    common        = local.common_init["load-generator"]
+    k6_version    = var.image_versions.k6
+    monitoring_ip = local.monitoring_ip
+    environments = [for env in sort(keys(var.environments)) : {
+      name       = env
+      backend_ip = local.hosts[env].backend_ip
+      domain     = local.hosts[env].domain
+    }]
+    loadtest_script = file("${path.module}/templates/loadtest/loadtest.sh")
+    smoke_script    = file("${path.module}/templates/loadtest/smoke.js")
   }))
   user_data_replace_on_change = true
 

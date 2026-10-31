@@ -52,6 +52,7 @@ fetch_dashboard 4701  jvm-micrometer
 fetch_dashboard 14057 mysql-exporter
 fetch_dashboard 763   redis-exporter
 fetch_dashboard 7587  blackbox-exporter
+fetch_dashboard 19665 k6-prometheus
 
 chmod -R a+rX $BASE
 
@@ -64,7 +65,7 @@ docker run -d --restart unless-stopped --name blackbox --network monitoring \
   --config.file=/etc/blackbox_exporter/config.yml
 
 docker run -d --restart unless-stopped --name prometheus --network monitoring \
-  -p 127.0.0.1:9090:9090 \
+  -p 9090:9090 \
   -v $BASE/prometheus:/etc/prometheus:ro \
   -v prometheus-data:/prometheus \
   prom/prometheus:${prometheus_version} \
@@ -72,7 +73,8 @@ docker run -d --restart unless-stopped --name prometheus --network monitoring \
   --storage.tsdb.path=/prometheus \
   --storage.tsdb.retention.time=30d \
   --storage.tsdb.retention.size=15GB \
-  --web.enable-lifecycle
+  --web.enable-lifecycle \
+  --web.enable-remote-write-receiver
 
 docker run -d --restart unless-stopped --name grafana --network monitoring \
   -p 3000:3000 \

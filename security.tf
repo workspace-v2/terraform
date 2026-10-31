@@ -145,6 +145,10 @@ locals {
           sg   = aws_security_group.load_generator[0].id, port = 9100, cidr = null, source_sg = aws_security_group.monitoring.id
           desc = "node_exporter from monitoring"
         }
+        "monitoring-prometheus-rw" = {
+          sg   = aws_security_group.monitoring.id, port = 9090, cidr = null, source_sg = aws_security_group.load_generator[0].id
+          desc = "k6 Prometheus remote write from load generator"
+        }
       },
       [for env, _ in var.environments : {
         "${env}-backend-app-loadgen" = {

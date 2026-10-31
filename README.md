@@ -112,6 +112,21 @@ sudo tail -f /var/log/bangjjack-bootstrap.log
   인스턴스 타입 변경은 재시작만 일어납니다.
 - `terraform destroy`는 DB 데이터까지 삭제합니다. 필요하면 먼저 `mysqldump`로 백업하세요.
 
+## 부하 테스트
+
+main/dev 공용 부하 발생기 1대(c6i.large, k6·wrk·ab·sysbench). k6 결과는 Prometheus로 전송돼
+Grafana의 **k6 Prometheus** 대시보드와 서비스 개요 대시보드에서 서버 지표와 같은 시간축으로 봅니다.
+
+```sh
+$(terraform output -json load_generator | jq -r .connect)   # SSM 접속
+loadtest dev /opt/loadtest/smoke.js                          # 내부망 :8080 직접 (Caddy 제외)
+TARGET=public loadtest dev /opt/loadtest/smoke.js            # https://dev.pattie.cloud 경유
+loadtest dev /opt/loadtest/smoke.js --vus 100 --duration 3m  # k6 옵션 덮어쓰기
+```
+
+스크립트에서는 `__ENV.BASE_URL`로 대상 주소를 씁니다. 테스트마다 `testid`, `target_env` 태그가 붙습니다.
+안 쓸 때는 `./scripts/env-power.sh load-generator stop`.
+
 ## 중지 / 시작
 
 안 쓸 때는 환경 단위로 중지합니다. 고정 IP(백엔드, 모니터링)와 내부 IP, 디스크 데이터는 유지됩니다.
@@ -121,6 +136,7 @@ sudo tail -f /var/log/bangjjack-bootstrap.log
 ./scripts/env-power.sh dev start         # DB·Redis 먼저 켜고 백엔드 시작
 ./scripts/env-power.sh main status
 ./scripts/env-power.sh monitoring stop
+./scripts/env-power.sh load-generator stop
 ```
 
 중지 중에도 EBS 디스크와 고정 IP(EIP) 요금은 나갑니다. 앱 컨테이너, MySQL, Redis, exporter, Caddy는

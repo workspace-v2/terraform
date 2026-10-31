@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 환경 단위로 EC2를 중지/시작한다. 고정 IP(EIP)와 내부 IP는 유지된다.
-# Usage: ./scripts/env-power.sh <main|dev|monitoring> <stop|start|status>
+# Usage: ./scripts/env-power.sh <main|dev|monitoring|load-generator> <stop|start|status>
 #   start 순서: DB, Redis 먼저 -> 실행 상태 확인 후 백엔드 (앱이 DB 접속 실패로 재시작 반복하지 않도록)
 set -euo pipefail
 
@@ -23,6 +23,8 @@ aws_ec2() { aws ec2 "$@" --profile "$PROFILE" --region "$REGION"; }
 
 if [ "$ENV_NAME" = "monitoring" ]; then
   data=""; backend=$(ids monitoring)
+elif [ "$ENV_NAME" = "load-generator" ]; then
+  ENV_NAME=monitoring; data=""; backend=$(ids load-generator)
 else
   data=$(ids database redis); backend=$(ids backend)
 fi

@@ -114,15 +114,15 @@ variable "monitoring_instance_type" {
 }
 
 variable "enable_load_generator" {
-  description = "Create the load-generator host (wrk, ab, sysbench) for load testing."
+  description = "main/dev 공용 부하 발생기(k6, wrk, ab, sysbench) 생성 여부. 평소엔 env-power.sh 로 중지."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "load_generator_instance_type" {
-  description = "Instance type for the load generator."
+  description = "부하 발생기 인스턴스 타입. T 계열은 CPU 크레딧 소진 시 부하기가 병목이 되므로 C 계열 사용."
   type        = string
-  default     = "t3.small"
+  default     = "c6i.large"
 }
 
 variable "image_versions" {
@@ -133,6 +133,7 @@ variable "image_versions" {
     blackbox        = string
     mysqld_exporter = string
     redis_exporter  = string
+    k6              = string
   })
   default = {
     prometheus      = "v3.14.0"
@@ -140,5 +141,6 @@ variable "image_versions" {
     blackbox        = "v0.28.0"
     mysqld_exporter = "0.20.0"
     redis_exporter  = "v1.94.0"
+    k6              = "v1.8.2"
   }
 }

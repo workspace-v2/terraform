@@ -3,4 +3,40 @@ set -euo pipefail
 ${common}
 
 apt-get install -y apache2-utils sysbench wrk
+
+# ---- k6 ----
+download "https://github.com/grafana/k6/releases/download/${k6_version}/k6-${k6_version}-linux-amd64.tar.gz" /tmp/k6.tgz
+tar -xzf /tmp/k6.tgz -C /tmp
+install -m 755 /tmp/k6-${k6_version}-linux-amd64/k6 /usr/local/bin/k6
+
+# 부하 대상 주소 (내부망 직접 / 공개 HTTPS) 와 결과 전송 주소
+cat > /etc/loadtest.env <<'ENVEOF'
+PROMETHEUS_RW_URL=http://${monitoring_ip}:9090/api/v1/write
+%{ for e in environments ~}
+${upper(e.name)}_INTERNAL_URL=http://${e.backend_ip}:8080
+${upper(e.name)}_PUBLIC_URL=https://${e.domain}
+%{ endfor ~}
+ENVEOF
+
+cat > /usr/local/bin/loadtest <<'LOADTEST_EOF'
+${loadtest_script}
+LOADTEST_EOF
+chmod 755 /usr/local/bin/loadtest
+
+mkdir -p /opt/loadtest
+cat > /opt/loadtest/smoke.js <<'SMOKE_EOF'
+${smoke_script}
+SMOKE_EOF
+chmod -R a+rwX /opt/loadtest
+
+# 커널 튜닝: 많은 동시 연결
+cat > /etc/sysctl.d/90-loadtest.conf <<'SYSEOF'
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_reuse = 1
+net.core.somaxconn = 65535
+SYSEOF
+sysctl --system >/dev/null
+echo '* soft nofile 1048576' >> /etc/security/limits.conf
+echo '* hard nofile 1048576' >> /etc/security/limits.conf
+
 echo "[bootstrap] done $(date -Is)"
