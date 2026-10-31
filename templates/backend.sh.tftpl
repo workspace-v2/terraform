@@ -14,7 +14,7 @@ EOF
 systemctl enable docker
 systemctl restart docker
 
-# Caddy terminates TLS (Let's Encrypt via nip.io) and proxies HTTP + WebSocket to Spring.
+# Caddy terminates TLS (Let's Encrypt, 도메인별 자동 발급) and proxies HTTP + WebSocket to Spring.
 cat > /etc/caddy/Caddyfile <<'EOF'
 ${app_domain} {
 	encode gzip

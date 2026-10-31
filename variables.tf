@@ -28,6 +28,18 @@ variable "vpc_cidr" {
   default     = "10.20.0.0/16"
 }
 
+variable "domain_name" {
+  description = "Route53 호스팅 영역 도메인. <env>.<domain>, monitoring.<domain> 레코드를 만든다. 빈 값이면 nip.io만 사용."
+  type        = string
+  default     = "pattie.cloud"
+}
+
+variable "create_hosted_zone" {
+  description = "domain_name 호스팅 영역을 새로 만들지 여부. 이미 Route53에 있으면 false (기존 영역을 조회)."
+  type        = bool
+  default     = false
+}
+
 variable "github_repository" {
   description = "GitHub repository (owner/name) whose main/dev branches may deploy via OIDC."
   type        = string

@@ -30,7 +30,12 @@ output "ecr_repository_url" {
 
 output "grafana_url" {
   description = "Grafana URL, accessible only from admin_cidr (user: admin)."
-  value       = "http://${aws_eip.monitoring.public_ip}:3000"
+  value       = var.domain_name != "" ? "http://monitoring.${var.domain_name}:3000" : "http://${aws_eip.monitoring.public_ip}:3000"
+}
+
+output "hosted_zone_name_servers" {
+  description = "create_hosted_zone = true 일 때 도메인 등록 기관에 설정할 네임서버."
+  value       = var.create_hosted_zone && var.domain_name != "" ? aws_route53_zone.main[0].name_servers : null
 }
 
 output "grafana_admin_password" {

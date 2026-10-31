@@ -19,7 +19,8 @@ Git 브랜치 이름이 곧 환경 이름입니다 (`main`, `dev`).
 | 구성 | 내용 |
 | --- | --- |
 | 환경 격리 | 환경마다 보안 그룹·IAM 역할·SSM 파라미터 경로가 분리됨. dev 백엔드는 main DB/Redis에 접근 불가, dev 브랜치 워크플로는 main 서버에 배포 불가 |
-| 백엔드 | Docker + Caddy. `<EIP>.nip.io` 도메인으로 Let's Encrypt 인증서 자동 발급 (HTTPS/WebSocket) |
+| 도메인 | Route53 `main.pattie.cloud`, `dev.pattie.cloud`, `monitoring.pattie.cloud` (기존 `<EIP>.nip.io`도 계속 응답) |
+| 백엔드 | Docker + Caddy. 도메인별 Let's Encrypt 인증서 자동 발급 (HTTPS/WebSocket) |
 | DB | EC2 위 MySQL 8 (utf8mb4, KST, slow query log, performance_schema) |
 | Redis | 비밀번호, AOF, maxmemory(volatile-lru) |
 | 시크릿 | SSM Parameter Store `/bangjjack/<env>/*` (SecureString). 배포 시 서버가 직접 읽어 env 파일 생성 |
@@ -63,8 +64,8 @@ echo 'FRONT_URI=https://...' > main.env
 
 | 키 | 관리 주체 |
 | --- | --- |
-| `DB_URL`, `DB_USER`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`, `SPRING_PROFILES_ACTIVE`, `APP_ENV`, `JAVA_OPTS`, `SERVER_FORWARD_HEADERS_STRATEGY` | Terraform (덮어쓰면 다음 apply 때 원복) |
-| `SERVER_URI`, `FRONT_URI`, `GOOGLE_REDIRECT_URI`, `JWT_ACCESS`, `DEV_SECRET` | Terraform이 초기값만 생성, 이후 자유롭게 수정 |
+| `DB_URL`, `DB_USER`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`, `SPRING_PROFILES_ACTIVE`, `APP_ENV`, `JAVA_OPTS`, `SERVER_FORWARD_HEADERS_STRATEGY`, `SERVER_URI`, `GOOGLE_REDIRECT_URI` | Terraform (덮어쓰면 다음 apply 때 원복) |
+| `FRONT_URI`, `JWT_ACCESS`, `DEV_SECRET` | Terraform이 초기값만 생성, 이후 자유롭게 수정 |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AI_MATCH_API_BASE_URL` | 더미값 (Google 로그인·AI 매칭 미사용) |
 
 ## 4. 모니터링

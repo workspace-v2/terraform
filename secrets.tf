@@ -46,10 +46,10 @@ locals {
   managed_parameter_keys = [
     "SPRING_PROFILES_ACTIVE", "APP_ENV", "DB_URL", "DB_USER", "DB_PASSWORD",
     "REDIS_HOST", "REDIS_PASSWORD", "SERVER_FORWARD_HEADERS_STRATEGY", "JAVA_OPTS",
+    "SERVER_URI", "GOOGLE_REDIRECT_URI",
   ]
   bootstrap_parameter_keys = [
-    "SERVER_URI", "FRONT_URI", "GOOGLE_REDIRECT_URI", "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET", "AI_MATCH_API_BASE_URL", "JWT_ACCESS", "DEV_SECRET",
+    "FRONT_URI", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AI_MATCH_API_BASE_URL", "JWT_ACCESS", "DEV_SECRET",
   ]
 
   # Values Terraform owns. Changing infrastructure updates them automatically.
@@ -64,6 +64,8 @@ locals {
       REDIS_PASSWORD                  = random_password.redis[env].result
       SERVER_FORWARD_HEADERS_STRATEGY = "framework"
       JAVA_OPTS                       = cfg.java_opts
+      SERVER_URI                      = "https://${local.hosts[env].domain}"
+      GOOGLE_REDIRECT_URI             = "https://${local.hosts[env].domain}/auth/login/google"
     }
   }
 
@@ -71,9 +73,7 @@ locals {
   # scripts/put-app-secrets.sh (or the AWS console) and they survive future applies.
   bootstrap_parameters = {
     for env, cfg in var.environments : env => {
-      SERVER_URI            = "https://${local.hosts[env].domain}"
-      FRONT_URI             = cfg.front_uri
-      GOOGLE_REDIRECT_URI   = "https://${local.hosts[env].domain}/auth/login/google"
+      FRONT_URI = cfg.front_uri
       # Google 로그인, AI 매칭은 사용하지 않음. 앱 기동에 값만 필요해서 더미값을 넣는다.
       GOOGLE_CLIENT_ID      = "not-used"
       GOOGLE_CLIENT_SECRET  = "not-used"
@@ -116,4 +116,23 @@ resource "aws_ssm_parameter" "bootstrap" {
   lifecycle {
     ignore_changes = [value]
   }
+}
+
+# SERVER_URI, GOOGLE_REDIRECT_URI 는 도메인을 따라가야 하므로 bootstrap(값 변경 무시)에서
+# managed 로 옮김. moved 로 같은 파라미터를 그대로 이어받아 삭제/재생성이 일어나지 않게 한다.
+moved {
+  from = aws_ssm_parameter.bootstrap["main/SERVER_URI"]
+  to   = aws_ssm_parameter.managed["main/SERVER_URI"]
+}
+moved {
+  from = aws_ssm_parameter.bootstrap["main/GOOGLE_REDIRECT_URI"]
+  to   = aws_ssm_parameter.managed["main/GOOGLE_REDIRECT_URI"]
+}
+moved {
+  from = aws_ssm_parameter.bootstrap["dev/SERVER_URI"]
+  to   = aws_ssm_parameter.managed["dev/SERVER_URI"]
+}
+moved {
+  from = aws_ssm_parameter.bootstrap["dev/GOOGLE_REDIRECT_URI"]
+  to   = aws_ssm_parameter.managed["dev/GOOGLE_REDIRECT_URI"]
 }

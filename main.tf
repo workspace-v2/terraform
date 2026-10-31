@@ -54,7 +54,7 @@ resource "aws_instance" "backend" {
     env                = each.key
     aws_region         = var.aws_region
     parameter_path     = local.parameter_path[each.key]
-    app_domain         = local.hosts[each.key].domain
+    app_domain         = join(", ", distinct([local.hosts[each.key].domain, local.hosts[each.key].nip_domain]))
     ecr_repository_url = aws_ecr_repository.backend.repository_url
     deploy_script      = file("${path.module}/templates/deploy.sh")
   }))
@@ -81,8 +81,9 @@ resource "aws_instance" "backend" {
     ignore_changes = [ami]
   }
 
-  # Parameters must exist before the first boot-time deploy attempt.
-  depends_on = [aws_ssm_parameter.managed, aws_ssm_parameter.bootstrap]
+  # Parameters must exist before the first boot-time deploy attempt; DNS records before
+  # Caddy requests certificates.
+  depends_on = [aws_ssm_parameter.managed, aws_ssm_parameter.bootstrap, aws_route53_record.backend]
 }
 
 resource "aws_eip_association" "backend" {
