@@ -10,11 +10,16 @@ tar -xzf /tmp/k6.tgz -C /tmp
 install -m 755 /tmp/k6-${k6_version}-linux-amd64/k6 /usr/local/bin/k6
 
 # 부하 대상 주소 (내부망 직접 / 공개 HTTPS) 와 결과 전송 주소
+#   *_INTERNAL_URL: Cloud Map DNS. 태스크가 여러 개면 조회할 때마다 IP 순서가 바뀐다.
+#   *_BACKEND_DNS : 태스크 IP 목록 조회용 (dig +short <dns>). 사용자를 특정 서버에 고정할 때 쓴다.
 cat > /etc/loadtest.env <<'ENVEOF'
 PROMETHEUS_RW_URL=http://${monitoring_ip}:9090/api/v1/write
 %{ for e in environments ~}
-${upper(e.name)}_INTERNAL_URL=http://${e.backend_ip}:8080
+${upper(e.name)}_INTERNAL_URL=http://${e.backend_dns}:8080
+${upper(e.name)}_BACKEND_DNS=${e.backend_dns}
 ${upper(e.name)}_PUBLIC_URL=https://${e.domain}
+ONE_${upper(e.name)}_INTERNAL_URL=http://${e.legacy_backend_ip}:8080
+ONE_${upper(e.name)}_PUBLIC_URL=https://${e.legacy_domain}
 %{ endfor ~}
 ENVEOF
 
