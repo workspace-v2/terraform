@@ -17,12 +17,12 @@ scrape_configs:
   - job_name: node
     static_configs:
 %{ for e in environments ~}
-      - targets: ["${e.backend_ip}:9100"]
-        labels: { env: ${e.name}, role: backend, instance: ${e.name}-backend }
       - targets: ["${e.database_ip}:9100"]
         labels: { env: ${e.name}, role: database, instance: ${e.name}-database }
       - targets: ["${e.redis_ip}:9100"]
         labels: { env: ${e.name}, role: redis, instance: ${e.name}-redis }
+      - targets: ["${e.legacy_backend_ip}:9100"]
+        labels: { env: ${e.legacy_name}, role: backend, platform: ec2, instance: ${e.legacy_name}-backend }
 %{ endfor ~}
       - targets: ["${monitoring_ip}:9100"]
         labels: { env: shared, role: monitoring, instance: monitoring }
@@ -32,13 +32,42 @@ scrape_configs:
 %{ endif ~}
 
   # ---- Spring Boot actuator / Micrometer (HTTP, JVM, HikariCP, Tomcat, logback) ----
-  - job_name: spring-actuator
+  # ECS 태스크 IP는 동적이라 Cloud Map A 레코드로 모든 태스크를 찾는다.
+  # instance 라벨: <env>-backend-<task ip>  (태스크별로 지표가 나뉜다)
+%{ for e in environments ~}
+  - job_name: spring-actuator-${e.name}
+    metrics_path: /actuator/prometheus
+    dns_sd_configs:
+      - names: ["${e.backend_dns}"]
+        type: A
+        port: 8081
+        refresh_interval: 15s
+    relabel_configs:
+      - target_label: job
+        replacement: spring-actuator
+      - target_label: env
+        replacement: ${e.name}
+      - target_label: role
+        replacement: backend
+      - target_label: platform
+        replacement: ecs
+      - source_labels: [__address__]
+        regex: "(.+):\\d+"
+        target_label: instance
+        replacement: "${e.name}-backend-$1"
+%{ endfor ~}
+
+  # 기존 EC2 단일 서버 백엔드 (env=one-<env>). 평소엔 중지 상태라 TargetDown 알림에서 제외한다.
+  - job_name: spring-actuator-legacy
     metrics_path: /actuator/prometheus
     static_configs:
 %{ for e in environments ~}
-      - targets: ["${e.backend_ip}:8081"]
-        labels: { env: ${e.name}, role: backend, instance: ${e.name}-backend }
+      - targets: ["${e.legacy_backend_ip}:8081"]
+        labels: { env: ${e.legacy_name}, role: backend, platform: ec2, instance: ${e.legacy_name}-backend }
 %{ endfor ~}
+    relabel_configs:
+      - target_label: job
+        replacement: spring-actuator
 
   # ---- MySQL ----
   - job_name: mysql
@@ -62,8 +91,10 @@ scrape_configs:
     params: { module: [http_health] }
     static_configs:
 %{ for e in environments ~}
-      - targets: ["http://${e.backend_ip}:8081/actuator/health"]
+      - targets: ["http://${e.backend_dns}:8081/actuator/health"]
         labels: { env: ${e.name}, role: backend, probe: internal-health }
+      - targets: ["http://${e.legacy_backend_ip}:8081/actuator/health"]
+        labels: { env: ${e.legacy_name}, role: backend, probe: internal-health }
 %{ endfor ~}
     relabel_configs:
       - source_labels: [__address__]
@@ -76,7 +107,7 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox:9115
 
-  # ---- Synthetic checks: public HTTPS endpoint (TLS, Caddy, cert expiry) ----
+  # ---- Synthetic checks: public HTTPS endpoint (TLS, ALB, cert expiry) ----
   - job_name: blackbox-public
     metrics_path: /probe
     params: { module: [https_public] }
@@ -84,6 +115,8 @@ scrape_configs:
 %{ for e in environments ~}
       - targets: ["https://${e.domain}/"]
         labels: { env: ${e.name}, role: backend, probe: public-https }
+      - targets: ["https://${e.legacy_domain}/"]
+        labels: { env: ${e.legacy_name}, role: backend, probe: public-https }
 %{ endfor ~}
     relabel_configs:
       - source_labels: [__address__]

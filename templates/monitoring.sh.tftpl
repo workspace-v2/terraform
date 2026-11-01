@@ -33,6 +33,12 @@ MONITORING_EOF
 cat > $BASE/grafana/dashboards/bangjjack-overview.json <<'MONITORING_EOF'
 ${overview_dashboard}
 MONITORING_EOF
+%{ if chat_dashboard != "" ~}
+
+cat > $BASE/grafana/dashboards/bangjjack-chat.json <<'MONITORING_EOF'
+${chat_dashboard}
+MONITORING_EOF
+%{ endif ~}
 
 # Community dashboards from grafana.com: rewrite their datasource inputs to our
 # provisioned datasource (uid "prometheus"). Failures are non-fatal.
