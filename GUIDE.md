@@ -8,7 +8,7 @@
 | --- | --- |
 | main API | https://main.pattie.cloud (Swagger: `/swagger-ui/index.html`) |
 | dev API | https://dev.pattie.cloud |
-| Grafana | http://monitoring.pattie.cloud:3000 (관리자 IP `admin_cidr` 에서만 접속) |
+| Grafana | https://monitoring.pattie.cloud (관리자 IP `admin_cidr` 에서만, 그 외 403) |
 
 ## 1. 부하테스트기 접속
 
@@ -19,7 +19,7 @@
 $(terraform output -json load_generator | jq -r .connect)
 
 # 접속 후
-loadtest dev /opt/loadtest/smoke.js                          # 내부망으로 앱 :8080 직접
+loadtest dev /opt/loadtest/smoke.js                          # 내부망으로 태스크 :8080 직접
 TARGET=public loadtest dev /opt/loadtest/smoke.js            # https://dev.pattie.cloud 경유
 loadtest main /opt/loadtest/smoke.js --vus 100 --duration 3m # k6 옵션 덮어쓰기
 ```
@@ -44,7 +44,7 @@ loadtest main /opt/loadtest/smoke.js --vus 100 --duration 3m # k6 옵션 덮어�
 # 전부 끄기
 for t in main dev load-generator monitoring; do ./scripts/env-power.sh $t stop; done
 
-# 전부 켜기 (DB·Redis 먼저 켜고 백엔드는 스크립트가 순서대로 처리)
+# 전부 켜기 (DB·Redis 먼저 켜고 ECS 태스크 수는 스크립트가 복원)
 for t in monitoring main dev; do ./scripts/env-power.sh $t start; done
 ./scripts/env-power.sh load-generator start   # 부하테스트할 때만
 
@@ -52,8 +52,8 @@ for t in monitoring main dev; do ./scripts/env-power.sh $t start; done
 for t in main dev monitoring load-generator; do ./scripts/env-power.sh $t status; done
 ```
 
-- 꺼도 고정 IP, 도메인, 내부 IP, DB 데이터는 그대로입니다. 켜면 앱/DB/Redis/모니터링이 자동으로 올라옵니다 (1~2분).
-- 꺼진 동안에도 EBS 디스크와 고정 IP(EIP) 요금은 나갑니다.
+- 꺼도 도메인, 내부 IP, DB 데이터는 그대로입니다. 켜면 DB/Redis/모니터링이 올라오고 ECS 태스크 수가 복원됩니다 (2~3분).
+- 꺼진 동안에도 ALB, EBS 디스크, 모니터링 고정 IP(EIP) 요금은 나갑니다.
 - 완전히 지우려면 `terraform destroy` (DB 데이터까지 삭제됨).
 
 ## 배포
