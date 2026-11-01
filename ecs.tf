@@ -90,7 +90,7 @@ locals {
         { name = "actuator", containerPort = 8081, protocol = "tcp" },
       ]
 
-      # /<prefix>/<env>/KEY -> 환경 변수 KEY (이전 deploy.sh 의 app.env 와 같은 값)
+      # /<prefix>/<env>/KEY -> 환경 변수 KEY
       secrets = [
         for key in local.app_parameter_keys : {
           name = key

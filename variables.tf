@@ -75,9 +75,8 @@ variable "environments" {
     Deployment environments keyed by Git branch name. Each environment gets its own
     ECS(Fargate) backend service, MySQL and Redis EC2 hosts, security groups, IAM roles
     and SSM parameters.
-    ip_base picks the private IP block (legacy backend = +1, database = +2, redis = +3). 백엔드 태스크는 IP가 동적이라
+    ip_base picks the private IP block (database = +2, redis = +3). 백엔드 태스크는 IP가 동적이라
     Cloud Map DNS(<env>-backend.<private_dns_namespace>)로 찾는다.
-    backend_instance_type: 기존 EC2 단일 서버 백엔드 타입 (one-<env>, var.legacy_backend_state).
     backend_cpu/backend_memory: Fargate 태스크 크기 (cpu 1024 -> memory 2048~8192, 1024 단위).
       0.5 vCPU(512)에서는 Spring Boot 기동이 2분 이상 걸려 헬스 체크 유예 안에 뜨지 못했다.
     backend_desired_count: 다중 서버 실험(Pub/Sub, FIS)을 하려면 2 이상. 서비스를 처음 만들 때만 적용된다
@@ -85,7 +84,6 @@ variable "environments" {
   EOT
   type = map(object({
     ip_base                = number
-    backend_instance_type  = string
     backend_cpu            = number
     backend_memory         = number
     backend_desired_count  = number
@@ -100,7 +98,6 @@ variable "environments" {
   default = {
     main = {
       ip_base                = 10
-      backend_instance_type  = "t3.small"
       backend_cpu            = 1024
       backend_memory         = 2048
       backend_desired_count  = 2
@@ -113,7 +110,6 @@ variable "environments" {
     }
     dev = {
       ip_base                = 20
-      backend_instance_type  = "t3.small"
       backend_cpu            = 1024
       backend_memory         = 2048
       backend_desired_count  = 2          # main(개선 전)과 같은 조건으로 비교하기 위해 main 과 동일 사양
@@ -203,22 +199,6 @@ variable "ecs_log_retention_days" {
   description = "백엔드 컨테이너 로그(CloudWatch Logs) 보관 일수."
   type        = number
   default     = 14
-}
-
-variable "legacy_backend_state" {
-  description = <<-EOT
-    기존 EC2 단일 서버 백엔드(Docker + Caddy)의 환경별 상태. ECS 전환 후 삭제하지 않고 보관한다.
-    접속: https://one-<env>.<domain>, 모니터링 환경 이름: one-<env>
-    stopped(기본): 같은 DB/Redis 를 쓰는 앱이 ECS 와 동시에 떠서 실험 결과가 섞이지 않게 한다.
-    running: 단일 서버 한계 측정 등 EC2 백엔드를 쓸 때. 예) -var 'legacy_backend_state={main="running"}'
-  EOT
-  type    = map(string)
-  default = {}
-
-  validation {
-    condition     = alltrue([for k, v in var.legacy_backend_state : contains(["running", "stopped"], v)])
-    error_message = "legacy_backend_state values must be running or stopped."
-  }
 }
 
 variable "backend_health_check_grace_seconds" {

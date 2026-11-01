@@ -33,15 +33,10 @@ locals {
 
   hosts = {
     for env, cfg in var.environments : env => {
-      # 기존 EC2 백엔드(중지 보관) 고정 IP(ip_base + 1)
-      legacy_backend_ip = cidrhost(local.subnet_cidr, cfg.ip_base + 1)
-      database_ip       = cidrhost(local.subnet_cidr, cfg.ip_base + 2)
-      redis_ip          = cidrhost(local.subnet_cidr, cfg.ip_base + 3)
+      database_ip = cidrhost(local.subnet_cidr, cfg.ip_base + 2)
+      redis_ip    = cidrhost(local.subnet_cidr, cfg.ip_base + 3)
       # 대표 도메인: <env>.<domain_name> (Route53 -> ALB)
       domain = "${env}.${var.domain_name}"
-      # 기존 EC2 단일 서버 백엔드 도메인 (Route53 one-<env>.<domain> -> EIP) 과 nip.io 주소
-      legacy_domain = "one-${env}.${var.domain_name}"
-      nip_domain    = "${aws_eip.backend[env].public_ip}.nip.io"
       # 백엔드 태스크 내부 DNS (Cloud Map, 태스크 IP 전부를 A 레코드로 반환)
       backend_dns = "${env}-backend.${var.private_dns_namespace}"
     }

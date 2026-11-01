@@ -1,8 +1,6 @@
 # Route53
 #   main.<domain>       -> ALB (alias, Host 헤더로 main 대상 그룹)
 #   dev.<domain>        -> ALB (alias, Host 헤더로 dev 대상 그룹)
-#   one-main.<domain>   -> 기존 main 단일 서버 EC2 EIP (Caddy TLS)
-#   one-dev.<domain>    -> 기존 dev 단일 서버 EC2 EIP
 #   monitoring.<domain> -> ALB (alias) -> Grafana :3000 (admin_cidr 에서만)
 
 resource "aws_route53_zone" "main" {
@@ -51,14 +49,4 @@ resource "aws_route53_record" "monitoring" {
     zone_id                = aws_lb.main.zone_id
     evaluate_target_health = false
   }
-}
-
-resource "aws_route53_record" "legacy_backend" {
-  for_each = var.environments
-
-  zone_id = local.zone_id
-  name    = local.hosts[each.key].legacy_domain
-  type    = "A"
-  ttl     = 300
-  records = [aws_eip.backend[each.key].public_ip]
 }

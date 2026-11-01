@@ -1,5 +1,5 @@
 # EC2 hosts
-#   per environment (main, dev): MySQL, Redis, legacy backend (중지 보관)   (서비스 백엔드는 ECS Fargate: ecs.tf)
+#   per environment (main, dev): MySQL, Redis   (서비스 백엔드는 ECS Fargate: ecs.tf)
 #   shared: monitoring (Prometheus + Grafana + Blackbox), optional load generator
 #
 # AMI lookups use most_recent, so `ami` is ignored after creation to avoid replacing
@@ -26,82 +26,6 @@ locals {
       swap_mb     = cfg.swap_mb
     })
   }
-}
-
-# ---------------------------------------------------------------------------
-# Legacy backend (EC2, Docker + Caddy) - ECS 전환 후에도 삭제하지 않고 남겨 둔다.
-#   - 도메인: one-<env>.<domain> -> EIP (<env>.<domain> 은 ALB/ECS). 모니터링 환경 이름: one-<env>
-#   - 상태는 var.legacy_backend_state 로 관리 (기본 stopped). CD는 이 서버에 배포하지 않는다:
-#     ./scripts/legacy-backend.sh <env> deploy <image-tag> 로 수동 배포, ... caddy 로 도메인 설정.
-#   - user_data 변경은 무시해 템플릿 수정으로 인스턴스가 교체되지 않게 한다.
-# ---------------------------------------------------------------------------
-resource "aws_eip" "backend" {
-  for_each = var.environments
-
-  domain = "vpc"
-  tags   = { Name = "${var.name_prefix}-${each.key}-backend", Env = each.key }
-}
-
-resource "aws_instance" "backend" {
-  for_each = var.environments
-
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = each.value.backend_instance_type
-  subnet_id              = aws_subnet.public.id
-  private_ip             = local.hosts[each.key].legacy_backend_ip
-  vpc_security_group_ids = [aws_security_group.backend[each.key].id]
-  iam_instance_profile   = aws_iam_instance_profile.backend[each.key].name
-
-  user_data_base64 = base64gzip(templatefile("${path.module}/templates/backend.sh.tftpl", {
-    common             = local.common_init["${each.key}-backend"]
-    name_prefix        = var.name_prefix
-    env                = each.key
-    aws_region         = var.aws_region
-    parameter_path     = local.parameter_path[each.key]
-    app_domain         = join(", ", distinct([local.hosts[each.key].domain, local.hosts[each.key].nip_domain]))
-    ecr_repository_url = aws_ecr_repository.backend.repository_url
-    deploy_script      = file("${path.module}/templates/deploy.sh")
-  }))
-  user_data_replace_on_change = true
-
-  metadata_options {
-    http_tokens = "required"
-  }
-
-  root_block_device {
-    volume_size           = 20
-    volume_type           = "gp3"
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  tags = {
-    Name = "${var.name_prefix}-${each.key}-backend"
-    Env  = each.key
-    Role = "backend"
-  }
-
-  lifecycle {
-    ignore_changes = [ami, user_data, user_data_base64]
-  }
-
-  # Parameters must exist before the first boot-time deploy attempt; DNS records before
-  # Caddy requests certificates.
-  depends_on = [aws_ssm_parameter.managed, aws_ssm_parameter.bootstrap, aws_route53_record.backend]
-}
-
-resource "aws_eip_association" "backend" {
-  for_each = var.environments
-
-  allocation_id = aws_eip.backend[each.key].id
-  instance_id   = aws_instance.backend[each.key].id
-}
-
-resource "aws_ec2_instance_state" "legacy_backend" {
-  for_each = var.environments
-
-  instance_id = aws_instance.backend[each.key].id
-  state       = lookup(var.legacy_backend_state, each.key, "stopped")
 }
 
 # ---------------------------------------------------------------------------
@@ -221,9 +145,6 @@ resource "aws_instance" "monitoring" {
         database_ip       = local.hosts[env].database_ip
         redis_ip          = local.hosts[env].redis_ip
         domain            = local.hosts[env].domain
-        legacy_name       = "one-${env}"
-        legacy_backend_ip = local.hosts[env].legacy_backend_ip
-        legacy_domain     = local.hosts[env].legacy_domain
       }]
       monitoring_ip     = local.monitoring_ip
       load_generator_ip = var.enable_load_generator ? local.load_generator_ip : ""
@@ -292,8 +213,6 @@ resource "aws_instance" "load_generator" {
       name              = env
       backend_dns       = local.hosts[env].backend_dns
       domain            = local.hosts[env].domain
-      legacy_backend_ip = local.hosts[env].legacy_backend_ip
-      legacy_domain     = local.hosts[env].legacy_domain
     }]
     loadtest_script = file("${path.module}/templates/loadtest/loadtest.sh")
     smoke_script    = file("${path.module}/templates/loadtest/smoke.js")
@@ -316,7 +235,9 @@ resource "aws_instance" "load_generator" {
     Role = "load-generator"
   }
 
+  # user_data 변경으로 인스턴스가 교체되면 측정 결과(/opt/loadtest/results)와 시드 데이터가 사라진다.
+  # 스크립트 갱신은 scripts/loadtest-push.sh 로 한다.
   lifecycle {
-    ignore_changes = [ami]
+    ignore_changes = [ami, user_data, user_data_base64]
   }
 }

@@ -10,14 +10,6 @@ output "environments" {
       task_family         = aws_ecs_task_definition.backend[env].family
       backend_dns         = local.hosts[env].backend_dns
       backend_log_group   = aws_cloudwatch_log_group.backend[env].name
-      legacy_backend = {
-        instance_id = aws_instance.backend[env].id
-        public_ip   = aws_eip.backend[env].public_ip
-        private_ip  = local.hosts[env].legacy_backend_ip
-        state       = lookup(var.legacy_backend_state, env, "stopped")
-        url         = "https://${local.hosts[env].legacy_domain}"
-        nip_url     = "https://${local.hosts[env].nip_domain}"
-      }
       database_private_ip = local.hosts[env].database_ip
       redis_private_ip    = local.hosts[env].redis_ip
       database_instance   = aws_instance.database[env].id

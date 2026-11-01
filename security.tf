@@ -1,25 +1,7 @@
 # Each environment has its own security groups so a dev backend can never reach the
 # main database or Redis (and vice versa).
 
-resource "aws_security_group" "backend" {
-  for_each = var.environments
-
-  name        = "${var.name_prefix}-${each.key}-backend"
-  description = "${each.key} backend: HTTPS from the internet, app/metrics from monitoring"
-  vpc_id      = aws_vpc.main.id
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.name_prefix}-${each.key}-backend", Env = each.key }
-}
-
 # ecs_backend: ECS 백엔드 태스크(ENI)에 붙는다. 인터넷 트래픽은 ALB 를 통해서만 들어온다.
-# (backend SG 는 중지 보관 중인 기존 EC2 백엔드용으로 그대로 둔다)
 resource "aws_security_group" "ecs_backend" {
   for_each = var.environments
 
@@ -105,35 +87,8 @@ resource "aws_security_group" "load_generator" {
 
 locals {
   ingress_rules = merge(
-    # Public traffic to the backend reverse proxy (Caddy).
-    merge([for env, _ in var.environments : {
-      "${env}-backend-http" = {
-        sg   = aws_security_group.backend[env].id, port = 80, cidr = "0.0.0.0/0", source_sg = null
-        desc = "HTTP (ACME challenge, redirect to HTTPS)"
-      }
-      "${env}-backend-https" = {
-        sg   = aws_security_group.backend[env].id, port = 443, cidr = "0.0.0.0/0", source_sg = null
-        desc = "HTTPS API and WebSocket"
-      }
-      "${env}-database-mysql" = {
-        sg   = aws_security_group.database[env].id, port = 3306, cidr = null, source_sg = aws_security_group.backend[env].id
-        desc = "MySQL from ${env} backend"
-      }
-      "${env}-redis-redis" = {
-        sg   = aws_security_group.redis[env].id, port = 6379, cidr = null, source_sg = aws_security_group.backend[env].id
-        desc = "Redis from ${env} backend"
-      }
-      "${env}-backend-app-mon" = {
-        sg   = aws_security_group.backend[env].id, port = 8080, cidr = null, source_sg = aws_security_group.monitoring.id
-        desc = "App port probe from monitoring"
-      }
-      "${env}-backend-actuator" = {
-        sg   = aws_security_group.backend[env].id, port = 8081, cidr = null, source_sg = aws_security_group.monitoring.id
-        desc = "Spring actuator (prometheus, health) from monitoring"
-      }
-      "${env}-backend-node" = {
-        sg   = aws_security_group.backend[env].id, port = 9100, cidr = null, source_sg = aws_security_group.monitoring.id
-        desc = "node_exporter from monitoring"
+    merge([for env, _ in var.environments : { backend"
+      } backend"
       }
       "${env}-database-node" = {
         sg   = aws_security_group.database[env].id, port = 9100, cidr = null, source_sg = aws_security_group.monitoring.id
@@ -211,10 +166,6 @@ locals {
         }
       },
       [for env, _ in var.environments : {
-        "${env}-backend-app-loadgen" = {
-          sg   = aws_security_group.backend[env].id, port = 8080, cidr = null, source_sg = aws_security_group.load_generator[0].id
-          desc = "App port from load generator"
-        }
         "${env}-ecs-backend-app-loadgen" = {
           sg   = aws_security_group.ecs_backend[env].id, port = 8080, cidr = null, source_sg = aws_security_group.load_generator[0].id
           desc = "App port (ECS task) from load generator"

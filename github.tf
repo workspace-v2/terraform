@@ -1,7 +1,7 @@
 # GitHub Actions deploys through OIDC (no long-lived AWS keys in GitHub).
 # Each branch can assume only its own environment's role:
-#   refs/heads/main -> <prefix>-github-deploy-main -> main ECS service + main 단일 서버 EC2 only
-#   refs/heads/dev  -> <prefix>-github-deploy-dev  -> dev ECS service + dev 단일 서버 EC2 only
+#   refs/heads/main -> <prefix>-github-deploy-main -> main ECS service only
+#   refs/heads/dev  -> <prefix>-github-deploy-dev  -> dev ECS service only
 
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.name_prefix}-backend"
@@ -151,37 +151,6 @@ data "aws_iam_policy_document" "github_deploy" {
     sid       = "DeployOwnEnvironmentServiceOnly"
     actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
     resources = ["arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${var.name_prefix}/${var.name_prefix}-${each.key}-backend"]
-  }
-
-  # 단일 서버(기존 EC2, one-<env>) 배포: running 일 때만 SSM RunCommand 로 deploy 스크립트 실행
-  statement {
-    sid       = "FindLegacyBackendInstance"
-    actions   = ["ec2:DescribeInstances"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid       = "RunDeployOnOwnEnvironmentLegacyBackendOnly"
-    actions   = ["ssm:SendCommand"]
-    resources = ["arn:aws:ec2:${var.aws_region}:${local.account_id}:instance/*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "ssm:resourceTag/Env"
-      values   = [each.key]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "ssm:resourceTag/Role"
-      values   = ["backend"]
-    }
-  }
-
-  statement {
-    sid       = "UseRunShellScriptDocument"
-    actions   = ["ssm:SendCommand"]
-    resources = ["arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript"]
   }
 
   statement {

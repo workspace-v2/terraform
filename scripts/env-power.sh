@@ -82,8 +82,7 @@ case "$ACTION" in
     echo "scaling $SERVICE to $count. 태스크 기동과 ALB 헬스 체크 통과까지 2~3분 걸립니다."
     ;;
   status)
-    # 기존 EC2 단일 서버 백엔드(Role=backend, one-<env>)도 함께 보여준다. 켜기/끄기는 terraform(legacy_backend_state).
-    aws_ec2 describe-instances --instance-ids $data $(ids backend) \
+    aws_ec2 describe-instances --instance-ids $data \
       --query 'Reservations[].Instances[].[Tags[?Key==`Name`]|[0].Value,State.Name]' --output table
     if [ -n "$service_arn" ]; then
       aws_ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
