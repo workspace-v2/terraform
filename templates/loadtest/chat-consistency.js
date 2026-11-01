@@ -15,6 +15,8 @@
 //   DURATION       전송 시간 (기본 120s 형식: 초 단위 숫자, 예 120)
 //   DRAIN          전송 종료 후 수신 대기 시간 초 (기본 5)
 //   RECONNECT      연결이 끊기면 다른 서버로 재연결 (기본 1)
+//   SERVICE_HOST   서비스 DNS 이름 (chattest 가 Cloud Map 이름을 넣는다). 처음 배정된 서버들이 모두 사라지면
+//                  (태스크 교체) 이 이름으로 재연결해 새 태스크에 붙는다. 서버별 집계에는 'dns' 로 잡힌다
 //   JITTER         1(기본): 사용자마다 전송 시작 시각을 전송 간격 안에서 무작위로 어긋나게 (실제 채팅처럼)
 //                  0: 모든 사용자가 같은 순간에 전송 -> 같은 방 동시 전송으로 DB 락 경합 재현 (4위 실험)
 import http from 'k6/http';
@@ -33,6 +35,9 @@ const DRAIN_S = parseInt(__ENV.DRAIN || '5', 10);
 const RECONNECT = (__ENV.RECONNECT || '1') === '1';
 const DEV_SECRET = __ENV.DEV_SECRET;
 const JITTER = (__ENV.JITTER || '1') === '1';
+const SERVICE_HOST = (__ENV.SERVICE_HOST || '').trim();
+// 재연결 후보: 처음 배정 서버들 -> (모두 실패하면) 서비스 DNS 이름
+const HOSTS = SERVICE_HOST ? IPS.concat([SERVICE_HOST]) : IPS;
 if (USERS.length < PAIRS * 2) fail(`need ${PAIRS * 2} users, seeded ${USERS.length} (loadtest-seed.sh 로 늘리기)`);
 
 // 서버(IP)별 지표. receiver_server: 메시지를 받은 사용자가 붙은 서버.
@@ -69,6 +74,8 @@ export const options = {
     },
   },
   setupTimeout: '5m',
+  // 태스크가 교체되면 DNS 결과가 바뀌므로 캐시를 짧게, 여러 IP 중 무작위 선택
+  dns: { ttl: '5s', select: 'random', policy: 'preferIPv4' },
   // VU 들이 거의 동시에 시작하므로 JITTER 로 전송 시각을 흩는다
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(95)', 'p(99)'],
   thresholds,
@@ -110,6 +117,7 @@ function wsToken(ip, accessToken) {
   const res = http.post(`${api(ip)}/api/v1/auth/ws-token`, null, {
     headers: { Authorization: `Bearer ${accessToken}` },
     tags: { name: 'ws_token' },
+    timeout: '5s', // 죽은 태스크 IP 에 오래 매달리지 않도록
   });
   if (res.status < 200 || res.status >= 300) { // ws-token 은 201 Created 를 반환한다
     tokenFailures.add(1, { server: ip, status: String(res.status) });
@@ -138,10 +146,10 @@ export default function (data) {
   let seq = 0;
 
   while (Date.now() < closeAt) {
-    const ip = IPS[serverIdx];
+    const ip = HOSTS[serverIdx];
     const token = wsToken(ip, me.token);
     if (!token) {
-      serverIdx = (serverIdx + 1) % IPS.length;
+      serverIdx = (serverIdx + 1) % HOSTS.length;
       sleep(1);
       continue;
     }
@@ -206,7 +214,7 @@ export default function (data) {
     }
     if (closedNormally || Date.now() >= closeAt || !RECONNECT) break;
     reconnects.add(1, { server: ip });
-    serverIdx = (serverIdx + 1) % IPS.length; // 끊긴 서버 대신 다른 서버로
+    serverIdx = (serverIdx + 1) % HOSTS.length; // 끊긴 서버 대신 다른 서버로 (모두 실패하면 서비스 DNS)
     sleep(1);
   }
 }

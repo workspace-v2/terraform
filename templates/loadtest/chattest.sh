@@ -21,6 +21,7 @@ if [ -z "${TASK_IPS:-}" ]; then
   else
     dns_var="${key}_BACKEND_DNS"; dns="${!dns_var:?unknown env: $ENV_NAME}"
     TASK_IPS=$(getent ahostsv4 "$dns" | awk '{print $1}' | sort -u | paste -sd, -)
+    SERVICE_HOST="$dns"   # 태스크가 모두 교체되면 이 이름으로 재연결
   fi
 fi
 [ -n "$TASK_IPS" ] || { echo "no running server found for $ENV_NAME"; exit 1; }
@@ -32,9 +33,9 @@ DEV_SECRET=$(cat "$DATA/${BASE_ENV}.secret")
 
 TEST_ID="chat-${ENV_NAME}-$(date +%m%d-%H%M%S)"
 mkdir -p /opt/loadtest/results
-echo "target=$ENV_NAME servers=$TASK_IPS testid=$TEST_ID"
+echo "target=$ENV_NAME servers=$TASK_IPS fallback=${SERVICE_HOST:-none} testid=$TEST_ID"
 
-export TASK_IPS USERS_FILE DEV_SECRET TEST_ID
+export TASK_IPS SERVICE_HOST="${SERVICE_HOST:-}" USERS_FILE DEV_SECRET TEST_ID
 export K6_PROMETHEUS_RW_SERVER_URL="$PROMETHEUS_RW_URL"
 export K6_PROMETHEUS_RW_TREND_STATS="p(50),p(95),p(99),avg,max"
 exec k6 run -o experimental-prometheus-rw \
