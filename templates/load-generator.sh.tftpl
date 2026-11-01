@@ -18,8 +18,6 @@ PROMETHEUS_RW_URL=http://${monitoring_ip}:9090/api/v1/write
 ${upper(e.name)}_INTERNAL_URL=http://${e.backend_dns}:8080
 ${upper(e.name)}_BACKEND_DNS=${e.backend_dns}
 ${upper(e.name)}_PUBLIC_URL=https://${e.domain}
-ONE_${upper(e.name)}_INTERNAL_URL=http://${e.legacy_backend_ip}:8080
-ONE_${upper(e.name)}_PUBLIC_URL=https://${e.legacy_domain}
 %{ endfor ~}
 ENVEOF
 

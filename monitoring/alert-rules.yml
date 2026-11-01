@@ -2,7 +2,7 @@ groups:
   - name: availability
     rules:
       - alert: TargetDown
-        expr: up{env!~"one-.*"} == 0 # one-<env>: 평소 중지 보관하는 EC2 단일 서버
+        expr: up == 0
         for: 2m
         labels: { severity: critical }
         annotations:
@@ -10,14 +10,14 @@ groups:
           description: "2분 이상 메트릭을 가져오지 못했습니다."
 
       - alert: HealthCheckFailed
-        expr: probe_success{job="blackbox-health", env!~"one-.*"} == 0
+        expr: probe_success{job="blackbox-health"} == 0
         for: 2m
         labels: { severity: critical }
         annotations:
           summary: "[{{ $labels.env }}] /actuator/health 실패 (DB/Redis 연결 포함)"
 
       - alert: PublicEndpointDown
-        expr: probe_success{job="blackbox-public", env!~"one-.*"} == 0
+        expr: probe_success{job="blackbox-public"} == 0
         for: 3m
         labels: { severity: critical }
         annotations:

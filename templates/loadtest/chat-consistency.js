@@ -4,7 +4,7 @@
 // 각 사용자는 일정 간격으로 메시지를 보내고, 같은 방의 모든 메시지(내 에코 + 상대 메시지)를
 // 받아야 정상이다. 서버별 수신율이 다르면 "서버 간 불일치", 100% 미만이면 "유실".
 //
-// 실행: chattest <main|dev|one-main|one-dev> [k6 options...]   (TASK_IPS, 사용자, DEV_SECRET 자동 설정)
+// 실행: chattest <main|dev> [k6 options...]   (TASK_IPS, 사용자, DEV_SECRET 자동 설정)
 //
 // 환경 변수
 //   TASK_IPS       서버 IP 목록 (쉼표). 방 i 의 사용자 A -> IPS[i % n], B -> IPS[(i + 1) % n]

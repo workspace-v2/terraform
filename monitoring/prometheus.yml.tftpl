@@ -21,8 +21,6 @@ scrape_configs:
         labels: { env: ${e.name}, role: database, instance: ${e.name}-database }
       - targets: ["${e.redis_ip}:9100"]
         labels: { env: ${e.name}, role: redis, instance: ${e.name}-redis }
-      - targets: ["${e.legacy_backend_ip}:9100"]
-        labels: { env: ${e.legacy_name}, role: backend, platform: ec2, instance: ${e.legacy_name}-backend }
 %{ endfor ~}
       - targets: ["${monitoring_ip}:9100"]
         labels: { env: shared, role: monitoring, instance: monitoring }
@@ -57,17 +55,6 @@ scrape_configs:
         replacement: "${e.name}-backend-$1"
 %{ endfor ~}
 
-  # 기존 EC2 단일 서버 백엔드 (env=one-<env>). 평소엔 중지 상태라 TargetDown 알림에서 제외한다.
-  - job_name: spring-actuator-legacy
-    metrics_path: /actuator/prometheus
-    static_configs:
-%{ for e in environments ~}
-      - targets: ["${e.legacy_backend_ip}:8081"]
-        labels: { env: ${e.legacy_name}, role: backend, platform: ec2, instance: ${e.legacy_name}-backend }
-%{ endfor ~}
-    relabel_configs:
-      - target_label: job
-        replacement: spring-actuator
 
   # ---- MySQL ----
   - job_name: mysql
@@ -93,8 +80,6 @@ scrape_configs:
 %{ for e in environments ~}
       - targets: ["http://${e.backend_dns}:8081/actuator/health"]
         labels: { env: ${e.name}, role: backend, probe: internal-health }
-      - targets: ["http://${e.legacy_backend_ip}:8081/actuator/health"]
-        labels: { env: ${e.legacy_name}, role: backend, probe: internal-health }
 %{ endfor ~}
     relabel_configs:
       - source_labels: [__address__]
@@ -115,8 +100,6 @@ scrape_configs:
 %{ for e in environments ~}
       - targets: ["https://${e.domain}/"]
         labels: { env: ${e.name}, role: backend, probe: public-https }
-      - targets: ["https://${e.legacy_domain}/"]
-        labels: { env: ${e.legacy_name}, role: backend, probe: public-https }
 %{ endfor ~}
     relabel_configs:
       - source_labels: [__address__]
