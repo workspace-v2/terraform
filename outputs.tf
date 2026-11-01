@@ -5,9 +5,19 @@ output "environments" {
       branch              = env
       api_url             = "https://${local.hosts[env].domain}"
       swagger_url         = "https://${local.hosts[env].domain}/swagger-ui/index.html"
-      backend_public_ip   = aws_eip.backend[env].public_ip
-      backend_instance_id = aws_instance.backend[env].id
-      backend_private_ip  = local.hosts[env].backend_ip
+      ecs_cluster         = aws_ecs_cluster.main.name
+      ecs_service         = aws_ecs_service.backend[env].name
+      task_family         = aws_ecs_task_definition.backend[env].family
+      backend_dns         = local.hosts[env].backend_dns
+      backend_log_group   = aws_cloudwatch_log_group.backend[env].name
+      legacy_backend = {
+        instance_id = aws_instance.backend[env].id
+        public_ip   = aws_eip.backend[env].public_ip
+        private_ip  = local.hosts[env].legacy_backend_ip
+        state       = lookup(var.legacy_backend_state, env, "stopped")
+        url         = "https://${local.hosts[env].legacy_domain}"
+        nip_url     = "https://${local.hosts[env].nip_domain}"
+      }
       database_private_ip = local.hosts[env].database_ip
       redis_private_ip    = local.hosts[env].redis_ip
       database_instance   = aws_instance.database[env].id
@@ -29,8 +39,8 @@ output "ecr_repository_url" {
 }
 
 output "grafana_url" {
-  description = "Grafana URL, accessible only from admin_cidr (user: admin)."
-  value       = var.domain_name != "" ? "http://monitoring.${var.domain_name}:3000" : "http://${aws_eip.monitoring.public_ip}:3000"
+  description = "Grafana URL (ALB HTTPS), accessible only from admin_cidr (user: admin)."
+  value       = "https://monitoring.${var.domain_name}"
 }
 
 output "hosted_zone_name_servers" {
@@ -67,4 +77,30 @@ output "redis_passwords" {
   description = "Generated Redis passwords per environment."
   value       = { for env in keys(var.environments) : env => random_password.redis[env].result }
   sensitive   = true
+}
+
+output "alb_dns_name" {
+  description = "ALB DNS 이름 (Route53 <env>.<domain> 이 alias 로 가리킨다)."
+  value       = aws_lb.main.dns_name
+}
+
+output "data_host_config" {
+  description = "DB/Redis 런타임 설정값. 기존 호스트는 user_data 변경을 무시하므로 scripts/sync-data-host-config.sh 로 적용한다."
+  value = {
+    for env, cfg in var.environments : env => {
+      mysql_buffer_pool_mb = cfg.mysql_buffer_pool_mb
+      redis_maxmemory_mb   = cfg.redis_maxmemory_mb
+    }
+  }
+}
+
+output "fis_experiment_templates" {
+  description = "FIS 실험 템플릿 ID. 실행: aws fis start-experiment --experiment-template-id <id>"
+  value = {
+    for env in keys(var.environments) : env => {
+      "redis-blackhole-one-task" = try(aws_fis_experiment_template.redis_blackhole_one_task[env].id, null)
+      "kill-one-task"            = try(aws_fis_experiment_template.kill_one_task[env].id, null)
+      "redis-stop"               = try(aws_fis_experiment_template.redis_stop[env].id, null)
+    }
+  }
 }

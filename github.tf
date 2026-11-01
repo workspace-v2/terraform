@@ -1,7 +1,7 @@
 # GitHub Actions deploys through OIDC (no long-lived AWS keys in GitHub).
 # Each branch can assume only its own environment's role:
-#   refs/heads/main -> <prefix>-github-deploy-main -> may only run commands on main backend
-#   refs/heads/dev  -> <prefix>-github-deploy-dev  -> may only run commands on dev backend
+#   refs/heads/main -> <prefix>-github-deploy-main -> main ECS service + main 단일 서버 EC2 only
+#   refs/heads/dev  -> <prefix>-github-deploy-dev  -> dev ECS service + dev 단일 서버 EC2 only
 
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.name_prefix}-backend"
@@ -123,14 +123,45 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = [aws_ecr_repository.backend.arn]
   }
 
+  # 태스크 정의 조회/등록은 리소스 단위 제한이 없다. 대신 PassRole 을 자기 환경 역할로만
+  # 허용해, 다른 환경의 역할(시크릿 접근 권한)을 쓰는 리비전은 등록할 수 없게 한다.
   statement {
-    sid       = "FindBackendInstance"
+    sid       = "TaskDefinitions"
+    actions   = ["ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "PassOwnEnvironmentTaskRoles"
+    actions   = ["iam:PassRole"]
+    # 리소스 속성 대신 ARN 을 직접 조합한다: ECS 서비스/역할이 변경 대상일 때 정책이
+    # "known after apply" 로 표시돼 plan 에 매번 변경처럼 보이는 것을 막는다.
+    resources = [
+      "arn:aws:iam::${local.account_id}:role/${var.name_prefix}-${each.key}-ecs-execution",
+      "arn:aws:iam::${local.account_id}:role/${var.name_prefix}-${each.key}-ecs-task",
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "DeployOwnEnvironmentServiceOnly"
+    actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
+    resources = ["arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${var.name_prefix}/${var.name_prefix}-${each.key}-backend"]
+  }
+
+  # 단일 서버(기존 EC2, one-<env>) 배포: running 일 때만 SSM RunCommand 로 deploy 스크립트 실행
+  statement {
+    sid       = "FindLegacyBackendInstance"
     actions   = ["ec2:DescribeInstances"]
     resources = ["*"]
   }
 
   statement {
-    sid       = "RunDeployOnOwnEnvironmentBackendOnly"
+    sid       = "RunDeployOnOwnEnvironmentLegacyBackendOnly"
     actions   = ["ssm:SendCommand"]
     resources = ["arn:aws:ec2:${var.aws_region}:${local.account_id}:instance/*"]
 

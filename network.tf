@@ -12,9 +12,13 @@ resource "aws_internet_gateway" "main" {
   tags = { Name = "${var.name_prefix}-igw" }
 }
 
-# A single public subnet keeps the setup NAT-free (no NAT Gateway cost). Database and
-# Redis hosts receive an auto-assigned public IP for outbound package downloads only;
-# their security groups accept no traffic from the internet.
+# Public subnets keep the setup NAT-free (no NAT Gateway cost). Database and Redis hosts
+# receive an auto-assigned public IP for outbound package downloads only; their security
+# groups accept no traffic from the internet. ECS tasks also get a public IP to pull from
+# ECR and reach SSM, and accept traffic only from the ALB, monitoring and load generator.
+#
+# ALB는 최소 2개 AZ의 서브넷이 필요하다. 기존 EC2(DB, Redis, 모니터링, 부하기)는 a 서브넷에
+# 그대로 두고, ALB와 ECS 태스크만 a/c 두 서브넷에 걸친다.
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = local.subnet_cidr
@@ -38,4 +42,22 @@ resource "aws_route_table" "public" {
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
+}
+
+resource "aws_subnet" "public_c" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = local.subnet_cidr_c
+  map_public_ip_on_launch = true
+  availability_zone       = "${var.aws_region}c"
+
+  tags = { Name = "${var.name_prefix}-public-c" }
+}
+
+resource "aws_route_table_association" "public_c" {
+  subnet_id      = aws_subnet.public_c.id
+  route_table_id = aws_route_table.public.id
+}
+
+locals {
+  app_subnet_ids = [aws_subnet.public.id, aws_subnet.public_c.id]
 }

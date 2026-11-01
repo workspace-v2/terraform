@@ -34,9 +34,9 @@ systemctl restart mysql
 
 mysql --protocol=socket -uroot <<'SQL'
 CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '${db_user}'@'${backend_ip}' IDENTIFIED BY '${db_password}';
-ALTER USER '${db_user}'@'${backend_ip}' IDENTIFIED BY '${db_password}';
-GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'${backend_ip}';
+CREATE USER IF NOT EXISTS '${db_user}'@'${app_host}' IDENTIFIED BY '${db_password}';
+ALTER USER '${db_user}'@'${app_host}' IDENTIFIED BY '${db_password}';
+GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'${app_host}';
 CREATE USER IF NOT EXISTS 'exporter'@'127.0.0.1' IDENTIFIED BY '${exporter_password}' WITH MAX_USER_CONNECTIONS 3;
 ALTER USER 'exporter'@'127.0.0.1' IDENTIFIED BY '${exporter_password}';
 GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'127.0.0.1';
