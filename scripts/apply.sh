@@ -15,7 +15,7 @@ aws sts get-caller-identity --profile "$PROFILE" --output table
 
 # Grafana is restricted to admin_cidr - warn when the current IP differs.
 my_ip=$(curl -fsS -m 5 https://checkip.amazonaws.com || true)
-if [ -n "$my_ip" ] && ! grep -q "$my_ip" terraform.tfvars 2>/dev/null && ! grep -q "$my_ip/32" variables.tf; then
+if [ -n "$my_ip" ] && grep -q '^admin_cidr' terraform.tfvars 2>/dev/null && ! grep -q "$my_ip" terraform.tfvars; then
   echo "!! current public IP $my_ip differs from admin_cidr. Grafana will be unreachable from here."
   echo "   add to terraform.tfvars:  admin_cidr = \"$my_ip/32\""
 fi
@@ -49,6 +49,6 @@ cat <<'EOF'
 
 Next:
   1) Push the dev branch (and merge to main) - GitHub Actions builds, pushes to ECR
-     and deploys through SSM.
-  2) Hosts finish bootstrapping ~5 minutes after apply.
+     and rolls out a new ECS task definition revision.
+  2) EC2 hosts (DB, Redis, monitoring) finish bootstrapping ~5 minutes after apply.
 EOF

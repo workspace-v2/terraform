@@ -10,6 +10,7 @@
 # Keys managed by Terraform (DB_*, REDIS_*, JAVA_OPTS, ...) are refused here so they
 # don't drift from the actual infrastructure.
 set -euo pipefail
+export AWS_PAGER="" # aws cli v2 의 less 페이저로 결과가 사라지지 않게
 
 ENV_NAME="${1:?usage: $0 <main|dev> <file.env> [--redeploy]}"
 FILE="${2:?usage: $0 <main|dev> <file.env> [--redeploy]}"
@@ -38,15 +39,9 @@ while IFS= read -r line || [ -n "$line" ]; do
 done < "$FILE"
 
 if [ "$REDEPLOY" = "--redeploy" ]; then
-  instance=$(aws ec2 describe-instances --profile "$PROFILE" --region "$REGION" \
-    --filters "Name=tag:Project,Values=$PREFIX" "Name=tag:Env,Values=$ENV_NAME" \
-              "Name=tag:Role,Values=backend" "Name=instance-state-name,Values=running" \
-    --query 'Reservations[].Instances[].InstanceId' --output text)
-  image=$(aws ecr describe-repositories --profile "$PROFILE" --region "$REGION" \
-    --repository-names "$PREFIX-backend" --query 'repositories[0].repositoryUri' --output text):$ENV_NAME-latest
-  cmd=$(aws ssm send-command --profile "$PROFILE" --region "$REGION" --instance-ids "$instance" \
-    --document-name AWS-RunShellScript --comment "restart with new secrets" \
-    --parameters "{\"commands\":[\"/usr/local/bin/$PREFIX-deploy $image\"]}" \
-    --query Command.CommandId --output text)
-  echo "redeploy requested on $instance (command $cmd)"
+  # ECS 는 태스크 기동 시점에 SSM 파라미터를 읽으므로, 새 태스크로 교체하면 반영된다.
+  aws ecs update-service --profile "$PROFILE" --region "$REGION" \
+    --cluster "$PREFIX" --service "$PREFIX-$ENV_NAME-backend" --force-new-deployment \
+    --query 'service.deployments[0].id' --output text
+  echo "redeploy requested on ECS service $PREFIX-$ENV_NAME-backend"
 fi
