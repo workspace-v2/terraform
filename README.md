@@ -23,7 +23,6 @@ Git 브랜치 이름이 곧 환경 이름입니다 (`main`, `dev`).
 | 환경 격리 | 환경마다 보안 그룹·IAM 역할·SSM 파라미터 경로·ECS 서비스가 분리됨. dev 백엔드는 main DB/Redis에 접근 불가, dev 브랜치 워크플로는 main 서비스에 배포 불가 |
 | 도메인 | Route53 `main.pattie.cloud`, `dev.pattie.cloud` → ALB(alias), `monitoring.pattie.cloud` → ALB(alias) → Grafana (HTTPS, `admin_cidr`에서만) |
 | 백엔드 | ECS Fargate. 환경별 태스크 수 2 (main·dev, 생성 시 `backend_desired_count`). TLS는 ALB(ACM, DNS 검증) |
-| 단일 서버 백엔드 | 기존 EC2(Docker + Caddy) `.11`, `.21`을 `one-main.pattie.cloud`, `one-dev.pattie.cloud`로 보관. 기본 중지 (`legacy_backend_state`), CD 배포 대상 아님 (`scripts/legacy-backend.sh`로 수동 배포) |
 | 서비스 디스커버리 | Cloud Map `<env>-backend.bangjjack.internal` → 실행 중인 모든 태스크 IP (Prometheus, 부하기가 사용) |
 | 장애 주입 | `enable_fault_injection = true` 면 태스크 정의에 FIS 준비(enableFaultInjection, pidMode=task, SSM agent 사이드카) |
 | DB | EC2 위 MySQL 8 (utf8mb4, KST, slow query log, performance_schema) |
@@ -81,23 +80,6 @@ aws fis start-experiment --experiment-template-id $(terraform output -json fis_e
 | `redis-stop` | Redis EC2 중지 → 2분 뒤 시작 | overall delivery, 복구 시간 |
 
 결과는 콘솔 요약과 부하기 `/opt/loadtest/results/<testid>.txt|json`, Grafana k6 대시보드(`testid`)에 남는다.
-
-## 단일 서버(EC2) 백엔드 사용 — 단일 서버 한계 측정 등
-
-같은 DB/Redis를 쓰므로 **ECS와 단일 서버는 한 번에 한쪽만 켜고 측정**한다.
-
-```sh
-terraform apply -var 'legacy_backend_state={main="running"}'   # 켜기 (기본값은 stopped)
-aws ecs update-service --cluster bangjjack --service bangjjack-main-backend --desired-count 0 --profile personal-project  # ECS 끄기
-./scripts/legacy-backend.sh main caddy                 # 최초 1회: Caddy 도메인을 one-main.pattie.cloud 로
-./scripts/legacy-backend.sh main deploy main-<git sha>  # ECS와 같은 이미지로 맞추기
-terraform apply                                         # 끄기 (stopped, ECS 태스크 수 원복)
-```
-
-Grafana 개요 대시보드의 `환경`에서 `one-main`, `one-dev`를 고르면 단일 서버 지표(JVM, HTTP, node)를 본다.
-DB·Redis 지표는 `main`/`dev` 라벨이므로 `one-main`과 `main`을 함께 선택한다. 평소 중지 상태라
-`one-*` 환경은 수집 실패(TargetDown)·헬스 체크 알림에서 제외된다.
-부하기에서는 `loadtest one-main <script>`(내부망 `10.20.1.11:8080`), `TARGET=public loadtest one-main ...`로 측정한다.
 
 ## 1. 사전 준비
 
