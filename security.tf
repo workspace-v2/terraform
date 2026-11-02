@@ -87,9 +87,8 @@ resource "aws_security_group" "load_generator" {
 
 locals {
   ingress_rules = merge(
-    merge([for env, _ in var.environments : { backend"
-      } backend"
-      }
+    # Exporters on the data hosts (monitoring -> DB/Redis)
+    merge([for env, _ in var.environments : {
       "${env}-database-node" = {
         sg   = aws_security_group.database[env].id, port = 9100, cidr = null, source_sg = aws_security_group.monitoring.id
         desc = "node_exporter from monitoring"
