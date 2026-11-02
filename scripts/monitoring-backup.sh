@@ -32,7 +32,7 @@ docker start prometheus grafana >/dev/null
 ls -lh \$F | awk '{print \"archive size:\", \$5}'
 aws() { docker run --rm --network host -v /tmp:/tmp amazon/aws-cli \"\$@\"; }
 aws s3 cp \$F s3://${BUCKET}/${KEY} --region ${REGION} --only-show-errors
-aws s3 cp s3://${BUCKET}/${KEY} s3://${BUCKET}/monitoring/latest.tar.gz --region ${REGION} --only-show-errors
+aws s3 cp \$F s3://${BUCKET}/monitoring/latest.tar.gz --region ${REGION} --only-show-errors
 echo uploaded s3://${BUCKET}/${KEY}"
 
 params=$(jq -nc --arg c "$remote" '{commands: [$c], executionTimeout: ["3600"]}')
