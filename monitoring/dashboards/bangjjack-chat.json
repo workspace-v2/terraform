@@ -656,7 +656,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (testid) (k6_chat_ws_reconnects_total{testid=~\"$testid\"})",
+          "expr": "max by (testid) (k6_chat_ws_reconnects_total{testid=~\"$testid\"}) or max by (testid) (k6_chat_sent_total{testid=~\"$testid\"}) * 0",
           "legendFormat": "재연결 {{testid}}",
           "refId": "A"
         },
@@ -665,13 +665,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (testid) (k6_chat_duplicates_total{testid=~\"$testid\"})",
+          "expr": "max by (testid) (k6_chat_duplicates_total{testid=~\"$testid\"}) or max by (testid) (k6_chat_sent_total{testid=~\"$testid\"}) * 0",
           "legendFormat": "중복 {{testid}}",
           "refId": "B"
         }
       ],
       "title": "WebSocket 재연결 / 중복 수신 (누적)",
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "재연결·중복이 없으면 k6 가 지표를 만들지 않아 No data 가 되므로, 같은 testid 의 전송 지표로 0 을 채운다."
     },
     {
       "collapsed": false,
@@ -1221,6 +1222,292 @@
       ],
       "title": "Redis 연결 클라이언트 / Pub/Sub 채널",
       "type": "timeseries"
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Redis Pub/Sub 발행 ([진행1]·[진행3] 이후 지표)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Pub/Sub 발행 실패 (1분당)",
+      "description": "Redis 발행 실패 횟수. [진행1](Fallback 제거) 이후 지표. 장애 구간에만 올라가야 정상.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance, channel) (increase(chat_pubsub_publish_failures_total{env=~\"$env\"}[1m]))",
+          "legendFormat": "{{channel}} {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "max",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "발행 대기열에 쌓인 작업 수",
+      "description": "[진행3] 발행 전용 실행기 대기열 길이. Redis 장애 중 차오르고 복구 후 비워져야 정상.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 44
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "chat_pubsub_publish_queued{env=~\"$env\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "max",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "대기열 초과로 버려진 발행 (1분당)",
+      "description": "[진행3] 대기열이 가득 차 버린 발행 수. 버려진 메시지는 DB 에 있어 sync 로 복구 대상.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 44
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (increase(chat_pubsub_publish_rejected_total{env=~\"$env\"}[1m]))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "max",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "헬스 체크 (장애 전파 확인)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "전체 헬스 체크 성공 여부 (/actuator/health, DB 포함)",
+      "description": "blackbox 가 15초마다 /actuator/health 를 호출한 결과. 1=성공, 0=실패(5초 타임아웃 포함). ALB 는 liveness 를 보므로 ALB 판정(CloudWatch UnHealthyHostCount)과 다를 수 있다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "probe_success{job=\"blackbox-health\", env=~\"$env\"}",
+          "legendFormat": "성공 {{env}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false,
+            "lineInterpolation": "stepAfter"
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "min"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "헬스 체크 응답 시간 (초)",
+      "description": "blackbox 프로브 소요 시간. 5초에 붙어 있으면 타임아웃(커넥션 대기)으로 실패한 것.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "probe_duration_seconds{job=\"blackbox-health\", env=~\"$env\"}",
+          "legendFormat": "응답 시간 {{env}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ],
   "preload": false,
