@@ -201,6 +201,20 @@ variable "ecs_log_retention_days" {
   default     = 14
 }
 
+variable "backend_health_check_path" {
+  description = <<-EOT
+    환경별 ALB 대상 그룹 헬스 체크 경로 (actuator 포트 8081).
+    /actuator/health          : 전체 상태 (DB 등 의존성 포함). 의존성 장애 시 정상 태스크도 교체된다.
+    /actuator/health/liveness : 프로세스 생존만. 앱에 management.endpoint.health.probes.enabled=true 가 배포된 환경만 쓸 수 있다
+                                (없는 환경에 지정하면 404 로 모든 태스크가 unhealthy 가 된다).
+  EOT
+  type = map(string)
+  default = {
+    main = "/actuator/health"
+    dev  = "/actuator/health/liveness"
+  }
+}
+
 variable "backend_health_check_grace_seconds" {
   description = "ECS 서비스 헬스 체크 유예(초). 이 시간 안에 ALB 헬스 체크를 통과하지 못하면 태스크를 교체한다. Spring Boot 기동 시간보다 넉넉해야 한다."
   type        = number

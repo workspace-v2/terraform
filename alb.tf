@@ -42,8 +42,10 @@ resource "aws_lb_target_group" "backend" {
   deregistration_delay = 30
 
   # 앱 포트(8080)가 아닌 actuator 포트(8081)로 헬스 체크한다.
+  # 경로는 환경별(var.backend_health_check_path). liveness 는 외부 의존성(DB 등)을 빼고
+  # 프로세스 생존만 보므로, 의존성 장애가 태스크 교체로 번지지 않는다.
   health_check {
-    path                = "/actuator/health"
+    path                = lookup(var.backend_health_check_path, each.key, "/actuator/health")
     port                = "8081"
     protocol            = "HTTP"
     matcher             = "200"
