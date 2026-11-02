@@ -210,7 +210,7 @@ variable "backend_health_check_path" {
   EOT
   type = map(string)
   default = {
-    main = "/actuator/health"
+    main = "/actuator/health/liveness"
     dev  = "/actuator/health/liveness"
   }
 }
