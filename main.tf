@@ -160,6 +160,8 @@ resource "aws_instance" "monitoring" {
     prometheus_version         = var.image_versions.prometheus
     grafana_version            = var.image_versions.grafana
     blackbox_version           = var.image_versions.blackbox
+    tempo_config               = file("${path.module}/monitoring/tempo.yml")
+    tempo_version              = var.image_versions.tempo
   }))
   user_data_replace_on_change = true
 

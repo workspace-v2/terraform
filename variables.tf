@@ -160,6 +160,7 @@ variable "image_versions" {
     mysqld_exporter = string
     redis_exporter  = string
     k6              = string
+    tempo           = string
   })
   default = {
     prometheus      = "v3.14.0"
@@ -168,6 +169,7 @@ variable "image_versions" {
     mysqld_exporter = "0.20.0"
     redis_exporter  = "v1.94.0"
     k6              = "v1.8.2"
+    tempo           = "2.8.2"
   }
 }
 

@@ -6,7 +6,7 @@ apt-get install -y docker.io
 systemctl enable --now docker
 
 BASE=/opt/monitoring
-mkdir -p $BASE/prometheus $BASE/blackbox \
+mkdir -p $BASE/prometheus $BASE/blackbox $BASE/tempo \
   $BASE/grafana/provisioning/datasources $BASE/grafana/provisioning/dashboards \
   $BASE/grafana/dashboards
 
@@ -20,6 +20,10 @@ MONITORING_EOF
 
 cat > $BASE/blackbox/blackbox.yml <<'MONITORING_EOF'
 ${blackbox_config}
+MONITORING_EOF
+
+cat > $BASE/tempo/tempo.yml <<'MONITORING_EOF'
+${tempo_config}
 MONITORING_EOF
 
 cat > $BASE/grafana/provisioning/datasources/prometheus.yml <<'MONITORING_EOF'
@@ -63,7 +67,7 @@ fetch_dashboard 19665 k6-prometheus
 chmod -R a+rX $BASE
 
 docker network inspect monitoring >/dev/null 2>&1 || docker network create monitoring
-for c in prometheus blackbox grafana; do docker rm -f $c >/dev/null 2>&1 || true; done
+for c in prometheus blackbox tempo grafana; do docker rm -f $c >/dev/null 2>&1 || true; done
 
 docker run -d --restart unless-stopped --name blackbox --network monitoring \
   -v $BASE/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro \
@@ -81,6 +85,13 @@ docker run -d --restart unless-stopped --name prometheus --network monitoring \
   --storage.tsdb.retention.size=15GB \
   --web.enable-lifecycle \
   --web.enable-remote-write-receiver
+
+# 트레이스 저장소: ECS 백엔드가 OTLP HTTP(4318)로 전송. 볼륨 쓰기 권한 때문에 root 로 실행.
+docker run -d --restart unless-stopped --name tempo --network monitoring --user 0 \
+  -p 4318:4318 \
+  -v $BASE/tempo/tempo.yml:/etc/tempo.yml:ro \
+  -v tempo-data:/var/tempo \
+  grafana/tempo:${tempo_version} -config.file=/etc/tempo.yml
 
 docker run -d --restart unless-stopped --name grafana --network monitoring \
   -p 3000:3000 \

@@ -46,7 +46,7 @@ locals {
   managed_parameter_keys = [
     "SPRING_PROFILES_ACTIVE", "APP_ENV", "DB_URL", "DB_USER", "DB_PASSWORD",
     "REDIS_HOST", "REDIS_PASSWORD", "SERVER_FORWARD_HEADERS_STRATEGY", "JAVA_OPTS",
-    "SERVER_URI", "GOOGLE_REDIRECT_URI",
+    "SERVER_URI", "GOOGLE_REDIRECT_URI", "OTLP_TRACING_ENDPOINT",
   ]
   bootstrap_parameter_keys = [
     "FRONT_URI", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AI_MATCH_API_BASE_URL", "JWT_ACCESS", "DEV_SECRET",
@@ -66,6 +66,7 @@ locals {
       JAVA_OPTS                       = cfg.java_opts
       SERVER_URI                      = "https://${local.hosts[env].domain}"
       GOOGLE_REDIRECT_URI             = "https://${local.hosts[env].domain}/auth/login/google"
+      OTLP_TRACING_ENDPOINT           = "http://${local.monitoring_ip}:4318/v1/traces" # 모니터링 인스턴스의 Tempo
     }
   }
 

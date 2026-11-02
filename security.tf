@@ -130,6 +130,10 @@ locals {
         sg   = aws_security_group.ecs_backend[env].id, port = 8080, cidr = null, source_sg = aws_security_group.monitoring.id
         desc = "App port probe from monitoring"
       }
+      "${env}-monitoring-otlp-ecs" = {
+        sg   = aws_security_group.monitoring.id, port = 4318, cidr = null, source_sg = aws_security_group.ecs_backend[env].id
+        desc = "OTLP traces (Tempo) from ${env} ECS backend"
+      }
       "${env}-ecs-backend-actuator" = {
         sg   = aws_security_group.ecs_backend[env].id, port = 8081, cidr = null, source_sg = aws_security_group.monitoring.id
         desc = "Spring actuator (prometheus, health) from monitoring"
