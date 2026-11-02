@@ -19,6 +19,10 @@
 //                  (태스크 교체) 이 이름으로 재연결해 새 태스크에 붙는다. 서버별 집계에는 'dns' 로 잡힌다
 //   JITTER         1(기본): 사용자마다 전송 시작 시각을 전송 간격 안에서 무작위로 어긋나게 (실제 채팅처럼)
 //                  0: 모든 사용자가 같은 순간에 전송 -> 같은 방 동시 전송으로 DB 락 경합 재현 (4위 실험)
+//   SYNC           0(기본): 실시간 수신만 집계 (동기화 API 이전 버전)
+//                  1: seq 기반 동기화 클라이언트 (동기화 API 가 있는 버전). 다음 경우 동기화 API 로 빠진 메시지를 받는다
+//                     - 받은 seq 가 건너뜀(gap) / 재연결 / 서버의 SYNC_REQUIRED 신호 / 측정 종료 직전(final)
+//                  결과에 실시간 전달률(ws)과 동기화 포함 최종 전달률을 함께 출력한다
 import http from 'k6/http';
 import ws from 'k6/ws';
 import exec from 'k6/execution';
@@ -36,6 +40,7 @@ const RECONNECT = (__ENV.RECONNECT || '1') === '1';
 const DEV_SECRET = __ENV.DEV_SECRET;
 const JITTER = (__ENV.JITTER || '1') === '1';
 const SERVICE_HOST = (__ENV.SERVICE_HOST || '').trim();
+const SYNC = (__ENV.SYNC || '0') === '1';
 // 재연결 후보: 처음 배정 서버들 -> (모두 실패하면) 서비스 DNS 이름
 const HOSTS = SERVICE_HOST ? IPS.concat([SERVICE_HOST]) : IPS;
 if (USERS.length < PAIRS * 2) fail(`need ${PAIRS * 2} users, seeded ${USERS.length} (loadtest-seed.sh 로 늘리기)`);
@@ -45,12 +50,17 @@ const sent = new Counter('chat_sent');                 // 보낸 SEND (server: �
 const sendErrors = new Counter('chat_send_errors');     // 서버 에러 응답 (WebSocketErrorResponse) = 저장 안 된 메시지
 const expected = new Counter('chat_expected');         // 받아야 할 수신 수 (receiver_server 별, 방의 두 사용자 서버 기준)
 const expectedErrors = new Counter('chat_expected_errors'); // 에러로 저장 안 된 메시지만큼 기대 수신에서 뺄 값
-const received = new Counter('chat_received');         // 받은 CHAT_MESSAGE (중복 제외)
+const received = new Counter('chat_received');         // 받은 CHAT_MESSAGE (중복 제외, via: ws=실시간 / sync=동기화로 복구)
 const duplicates = new Counter('chat_duplicates');      // 같은 메시지를 두 번 이상 받음
 const reconnects = new Counter('chat_ws_reconnects');   // 비정상 종료 후 재연결
 const tokenFailures = new Counter('chat_ws_token_failures'); // ws-token 발급 실패
 const connects = new Counter('chat_ws_connects');       // WebSocket 연결 성공(open)
 const connectFailures = new Counter('chat_ws_connect_failures'); // 핸드셰이크 실패
+const syncCalls = new Counter('chat_sync_calls');       // 동기화 API 호출 (reason: gap / reconnect / signal / final)
+const syncFailures = new Counter('chat_sync_failures'); // 동기화 API 실패 응답
+const syncOverlap = new Counter('chat_sync_overlap');   // 동기화로 이미 받은 메시지가 실시간으로 다시 옴 (정상, 중복 제거됨)
+const syncSignals = new Counter('chat_sync_signals');   // 서버가 보낸 SYNC_REQUIRED
+const syncDuration = new Trend('chat_sync_duration_ms', true); // 동기화 1회(페이지 포함) 소요 시간
 let logged = 0;
 function logOnce(msg) {
   if (logged < 2) { console.warn(msg); logged += 1; } // VU 마다 최대 2줄
@@ -63,6 +73,8 @@ for (const ip of IPS) {
   thresholds[`chat_expected{receiver_server:${ip}}`] = ['count>=0'];
   thresholds[`chat_expected_errors{receiver_server:${ip}}`] = ['count>=0'];
 }
+for (const via of ['ws', 'sync']) thresholds[`chat_received{via:${via}}`] = ['count>=0'];
+for (const reason of ['gap', 'reconnect', 'signal', 'final']) thresholds[`chat_sync_calls{reason:${reason}}`] = ['count>=0'];
 
 export const options = {
   scenarios: {
@@ -107,10 +119,24 @@ export function setup() {
       tags: { name: 'create_room' },
     });
     if (res.status < 200 || res.status >= 300) fail(`create room failed ${a}-${b} status=${res.status} body=${res.body}`);
-    pairs.push({ roomId: res.json('data.roomId'), a: { id: a, token: tokenA }, b: { id: b, token: tokenB } });
+    const roomId = res.json('data.roomId');
+    // 사용자를 재사용하므로 방에 이전 측정 메시지가 남아 있다. 동기화 기준점은 현재 방의 마지막 seq.
+    const baseSeq = SYNC ? latestSeq(tokenA, roomId) : 0;
+    pairs.push({ roomId, baseSeq, a: { id: a, token: tokenA }, b: { id: b, token: tokenB } });
   }
-  console.log(`setup: ${PAIRS} rooms, servers=${IPS.join(',')}, rate=${RATE}/s/user, duration=${DURATION_S}s`);
-  return { pairs, startAt: Date.now() + 5000 }; // 모든 VU 가 연결할 여유를 두고 동시에 전송 시작
+  console.log(`setup: ${PAIRS} rooms, servers=${IPS.join(',')}, rate=${RATE}/s/user, duration=${DURATION_S}s, sync=${SYNC ? 'on' : 'off'}`);
+  // runId: 이번 측정에서 보낸 메시지만 집계 (동기화로 받은 이전 측정 메시지 제외)
+  return { pairs, runId: Date.now(), startAt: Date.now() + 5000 }; // 모든 VU 가 연결할 여유를 두고 동시에 전송 시작
+}
+
+function latestSeq(accessToken, roomId) {
+  const res = http.get(`${api(IPS[0])}/api/v1/chat-rooms/${roomId}/messages?size=1`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    tags: { name: 'latest_seq' },
+  });
+  if (res.status !== 200) fail(`latest seq failed room=${roomId} status=${res.status} body=${res.body}`);
+  const messages = res.json('data.messages') || [];
+  return messages.length > 0 ? messages[0].seq : 0;
 }
 
 function wsToken(ip, accessToken) {
@@ -142,8 +168,51 @@ export default function (data) {
 
   const sendUntil = data.startAt + DURATION_S * 1000;
   const closeAt = sendUntil + DRAIN_S * 1000;
-  const seen = new Set(); // messageId
+  const seen = new Map(); // messageId -> 처음 받은 경로 (ws / sync)
   let seq = 0;
+  let lastSeq = pair.baseSeq; // 빈틈없이 받은 마지막 seq (SYNC=1)
+  let connectedOnce = false;
+
+  // 메시지 1건 집계. 이미 받은 메시지면 false.
+  function accept(msg, via, ip) {
+    let body;
+    try { body = JSON.parse(msg.content); } catch (e) { return false; }
+    if (!body || body.lt !== 1 || body.run !== data.runId) return false;
+    const first = seen.get(msg.messageId);
+    if (first) {
+      if (via === 'ws' && first === 'sync') syncOverlap.add(1, { receiver_server: ip });
+      else if (via === 'ws') duplicates.add(1, { receiver_server: ip });
+      return false;
+    }
+    seen.set(msg.messageId, via);
+    const kind = body.from === me.id ? 'echo' : 'partner';
+    received.add(1, { receiver_server: ip, kind, via });
+    if (via === 'ws' && kind === 'partner') latency.add(Date.now() - body.ts, { receiver_server: ip });
+    return true;
+  }
+
+  // lastSeq 이후를 동기화 API 로 받아 집계하고 lastSeq 를 syncedSeq 로 올린다.
+  function syncRoom(ip, reason) {
+    const started = Date.now();
+    syncCalls.add(1, { reason, server: ip });
+    for (let page = 0; page < 50; page++) {
+      const res = http.get(`${api(ip)}/api/v1/chat-rooms/${roomId}/messages/sync?afterSeq=${lastSeq}&size=200`, {
+        headers: { Authorization: `Bearer ${me.token}` },
+        tags: { name: 'sync' },
+        timeout: '5s',
+      });
+      if (res.status !== 200) {
+        syncFailures.add(1, { reason, server: ip, status: String(res.status) });
+        logOnce(`sync failed server=${ip} reason=${reason} status=${res.status} body=${String(res.body).slice(0, 300)}`);
+        return;
+      }
+      const d = res.json('data');
+      for (const m of d.messages) accept(m, 'sync', ip);
+      lastSeq = Math.max(lastSeq, d.syncedSeq);
+      if (!d.hasNext) break;
+    }
+    syncDuration.add(Date.now() - started, { reason });
+  }
 
   while (Date.now() < closeAt) {
     const ip = HOSTS[serverIdx];
@@ -162,6 +231,8 @@ export default function (data) {
 
       socket.on('open', () => {
         connects.add(1, { server: ip });
+        if (SYNC && connectedOnce) syncRoom(ip, 'reconnect'); // 끊긴 동안 놓친 메시지
+        connectedOnce = true;
         // 연결 시 서버가 내가 속한 방을 자동 구독한다 (ChatWebSocketHandler.afterConnectionEstablished).
         // SUBSCRIBE 를 따로 보내지 않는 이유: ERROR 응답이 어느 요청의 것인지 구분할 수 없어서.
         const offset = JITTER ? Math.random() * (1000 / RATE) : 0;
@@ -171,13 +242,14 @@ export default function (data) {
           socket.setInterval(() => {
             if (Date.now() >= sendUntil) return;
             seq += 1;
-            const content = JSON.stringify({ lt: 1, seq, ts: Date.now(), from: me.id });
+            const content = JSON.stringify({ lt: 1, run: data.runId, seq, ts: Date.now(), from: me.id });
             socket.send(JSON.stringify({ type: 'SEND', roomId, content }));
             sent.add(1, { server: ip, side });
             for (const rs of roomServers) expected.add(1, { receiver_server: rs });
           }, 1000 / RATE);
         }, wait);
         socket.setTimeout(() => {
+          if (SYNC) syncRoom(ip, 'final'); // 측정 종료 직전: 최종 정합성 확인
           closedNormally = true;
           socket.close();
         }, Math.max(1, closeAt - Date.now()));
@@ -187,17 +259,14 @@ export default function (data) {
         let msg;
         try { msg = JSON.parse(raw); } catch (e) { return; }
         if (msg.type === 'CHAT_MESSAGE' && msg.roomId === roomId) {
-          let body;
-          try { body = JSON.parse(msg.content); } catch (e) { return; }
-          if (!body || body.lt !== 1) return;
-          if (seen.has(msg.messageId)) {
-            duplicates.add(1, { receiver_server: ip });
-            return;
+          if (SYNC && typeof msg.seq === 'number') {
+            if (msg.seq > lastSeq + 1) syncRoom(ip, 'gap'); // 사이에 빠진 메시지가 있다
+            if (msg.seq === lastSeq + 1) lastSeq = msg.seq;
           }
-          seen.add(msg.messageId);
-          const kind = body.from === me.id ? 'echo' : 'partner';
-          received.add(1, { receiver_server: ip, kind });
-          if (kind === 'partner') latency.add(Date.now() - body.ts, { receiver_server: ip });
+          accept(msg, 'ws', ip);
+        } else if (msg.type === 'SYNC_REQUIRED' && msg.roomId === roomId) {
+          syncSignals.add(1, { receiver_server: ip });
+          if (SYNC) syncRoom(ip, 'signal');
         } else if (msg.type === 'ERROR') {
           // WebSocketErrorResponse: 이 연결에서 보내는 요청은 SEND 뿐이라 SEND 거부(저장 안 됨)로 본다
           sendErrors.add(1, { server: ip, code: String(msg.code) });
@@ -231,7 +300,7 @@ export function handleSummary(data) {
   const accepted = totalSent - totalErrors;
   const lines = [];
   lines.push('================ chat consistency ================');
-  lines.push(`servers: ${IPS.join(', ')}   rooms: ${PAIRS}   rate: ${RATE}/s/user   duration: ${DURATION_S}s   jitter: ${JITTER ? 'on' : 'off (동시 전송)'}`);
+  lines.push(`servers: ${IPS.join(', ')}   rooms: ${PAIRS}   rate: ${RATE}/s/user   duration: ${DURATION_S}s   jitter: ${JITTER ? 'on' : 'off (동시 전송)'}   sync: ${SYNC ? 'on' : 'off'}`);
   lines.push(`ws: connects ${count(m, 'chat_ws_connects')}   connect failures ${count(m, 'chat_ws_connect_failures')}   ws-token failures ${count(m, 'chat_ws_token_failures')}   reconnects ${count(m, 'chat_ws_reconnects')}`);
   lines.push(`sent: ${totalSent}   rejected(send errors): ${totalErrors}   accepted: ${accepted}   duplicates: ${count(m, 'chat_duplicates')}`);
   const ratios = [];
@@ -245,6 +314,17 @@ export function handleSummary(data) {
   const totalRecv = count(m, 'chat_received');
   const overall = accepted > 0 ? (100 * totalRecv) / (accepted * 2) : 0;
   lines.push(`overall delivery: ${overall.toFixed(2)}%   loss: ${(100 - overall).toFixed(2)}%`);
+  if (SYNC) {
+    const ws = count(m, 'chat_received{via:ws}');
+    const synced = count(m, 'chat_received{via:sync}');
+    const realtime = accepted > 0 ? (100 * ws) / (accepted * 2) : 0;
+    lines.push(`  realtime(ws) delivery: ${realtime.toFixed(2)}%   recovered by sync: ${synced}   -> final(ws+sync) delivery: ${overall.toFixed(2)}%`);
+    const reasons = ['gap', 'reconnect', 'signal', 'final'].map((r) => `${r} ${count(m, `chat_sync_calls{reason:${r}}`)}`).join('  ');
+    lines.push(`  sync calls: ${reasons}   failures ${count(m, 'chat_sync_failures')}   overlap(dedup) ${count(m, 'chat_sync_overlap')}`);
+    const sd = m.chat_sync_duration_ms;
+    if (sd) lines.push(`  sync duration ms  p50=${sd.values.med.toFixed(1)}  p95=${sd.values['p(95)'].toFixed(1)}  max=${sd.values.max.toFixed(1)}`);
+  }
+  lines.push(`sync signals(SYNC_REQUIRED) received: ${count(m, 'chat_sync_signals')}`);
   if (ratios.length > 1) {
     lines.push(`server inconsistency (max-min delivery): ${(Math.max(...ratios) - Math.min(...ratios)).toFixed(2)}%p`);
     if (count(m, 'chat_ws_reconnects') > 0) lines.push('  (재연결이 있으면 서버별 수치는 처음 배정 기준이라 참고용, overall 을 본다)');
