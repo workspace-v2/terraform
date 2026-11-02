@@ -179,11 +179,17 @@ resource "aws_instance" "monitoring" {
     Role = "monitoring"
   }
 
-  # Prometheus 이력(측정 데이터)이 인스턴스 디스크에 있으므로, 설정 템플릿이 바뀌어도 교체하지 않는다.
-  # 설정을 반영하려면 의도적으로: terraform apply -replace=aws_instance.monitoring (이력 초기화)
-  # 대시보드만이라면 교체 없이: ./scripts/export-grafana-dashboard.sh (Grafana 에서 고친 뒤)
+  # Prometheus 이력(측정 데이터)과 Grafana DB 가 이 인스턴스 디스크에 있다. 잃어버리지 않도록 이중으로 보호한다.
+  #   1) prevent_destroy: terraform 이 이 인스턴스를 삭제하거나 교체(replace)하는 plan 을 만들면 오류로 멈춘다.
+  #   2) disable_api_termination: 콘솔/CLI 에서 실수로 종료(terminate)하는 것을 막는다 (중지/시작은 가능).
+  # 설정 템플릿 변경은 무시한다 (ignore_changes). 대시보드는 ./scripts/export-grafana-dashboard.sh 로 교체 없이 반영.
+  # 백업: ./scripts/monitoring-backup.sh (S3), 복원: ./scripts/monitoring-restore.sh
+  # 정말 교체해야 한다면: 백업 -> prevent_destroy 와 disable_api_termination 을 false 로 바꾼 커밋 -> apply -> 복원.
+  disable_api_termination = true
+
   lifecycle {
-    ignore_changes = [ami, user_data, user_data_base64]
+    prevent_destroy = true
+    ignore_changes  = [ami, user_data, user_data_base64]
   }
 }
 
