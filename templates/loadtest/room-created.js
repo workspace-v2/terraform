@@ -99,9 +99,11 @@ export default function (data) {
             const res = http.post(`${api(ip)}/api/v1/chat-rooms`, JSON.stringify({ targetUserId: target.id }), {
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${me.token}` }, tags: { name: 'create_room' },
             });
-            if (res.status === 201) {
+            // HTTP 상태는 항상 200, 응답 본문 code 로 구분: 201 = 새 방(CHAT_ROOM_CREATED), 200 = 기존 방(CHAT_ROOM_FOUND)
+            const code = res.status === 200 ? res.json('code') : null;
+            if (code === 201) {
               created.add(1, { round: String(r) });
-            } else if (res.status === 200) {
+            } else if (code === 200) {
               found.add(1, { round: String(r) });
               return; // 기존 방: 생성 이벤트가 없어 측정 대상 아님
             } else {
