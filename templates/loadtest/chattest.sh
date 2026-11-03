@@ -6,6 +6,7 @@
 #   TASK_IPS=10.20.1.40 chattest main          # 특정 서버만 (기본: Cloud Map 으로 실행 중인 모든 태스크)
 #   SCRIPT=room-created.js OFFSET=0 chattest dev # 다른 시나리오 (기본 chat-consistency.js)
 #   SCRIPT=newroom-outage.js OFFSET=0 chattest dev # Redis 차단 중 새 방 구독 복구 (FIS 시작 직후 실행)
+#   SCRIPT=flood.js chattest main                   # 플러딩 사용자가 정상 사용자에 주는 영향 (단계별 속도)
 #
 # 준비: 로컬에서 ./scripts/loadtest-seed.sh <main|dev> 를 먼저 실행 (사용자 시드 + DEV_SECRET 전달)
 set -euo pipefail
@@ -32,7 +33,8 @@ DEV_SECRET=$(cat "$DATA/${BASE_ENV}.secret")
 
 SCRIPT="${SCRIPT:-chat-consistency.js}"
 [ -f "/opt/loadtest/$SCRIPT" ] || { echo "/opt/loadtest/$SCRIPT 없음 (loadtest-push.sh)"; exit 1; }
-TEST_ID="${SCRIPT%%-*}-${ENV_NAME}-$(date +%m%d-%H%M%S)"
+NAME="${SCRIPT%.js}"
+TEST_ID="${NAME%%-*}-${ENV_NAME}-$(date +%m%d-%H%M%S)"
 [ "$SCRIPT" = "chat-consistency.js" ] && TEST_ID="chat-${ENV_NAME}-$(date +%m%d-%H%M%S)"
 mkdir -p /opt/loadtest/results
 echo "target=$ENV_NAME servers=$TASK_IPS fallback=${SERVICE_HOST:-none} testid=$TEST_ID"
