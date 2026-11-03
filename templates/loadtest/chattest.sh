@@ -5,6 +5,7 @@
 #   PAIRS=50 RATE=2 DURATION=180 chattest dev
 #   TASK_IPS=10.20.1.40 chattest main          # 특정 서버만 (기본: Cloud Map 으로 실행 중인 모든 태스크)
 #   SCRIPT=room-created.js OFFSET=0 chattest dev # 다른 시나리오 (기본 chat-consistency.js)
+#   SCRIPT=newroom-outage.js OFFSET=0 chattest dev # Redis 차단 중 새 방 구독 복구 (FIS 시작 직후 실행)
 #
 # 준비: 로컬에서 ./scripts/loadtest-seed.sh <main|dev> 를 먼저 실행 (사용자 시드 + DEV_SECRET 전달)
 set -euo pipefail

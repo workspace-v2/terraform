@@ -13,11 +13,11 @@ LG=$(aws ec2 describe-instances --profile "$PROFILE" --region "$REGION" \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 [ "$LG" != "None" ] || { echo "load generator is not running (./scripts/env-power.sh load-generator start)"; exit 1; }
 
-payload=$(LC_ALL=C COPYFILE_DISABLE=1 tar -C templates/loadtest -czf - chat-consistency.js room-created.js smoke.js chattest.sh | base64 | tr -d '\n')
+payload=$(LC_ALL=C COPYFILE_DISABLE=1 tar -C templates/loadtest -czf - chat-consistency.js room-created.js newroom-outage.js smoke.js chattest.sh | base64 | tr -d '\n')
 script="set -e
 mkdir -p /opt/loadtest/data /opt/loadtest/results /tmp/lt-push
 echo '$payload' | base64 -d | tar -xzf - -C /tmp/lt-push
-install -m 644 /tmp/lt-push/chat-consistency.js /tmp/lt-push/room-created.js /tmp/lt-push/smoke.js /opt/loadtest/
+install -m 644 /tmp/lt-push/chat-consistency.js /tmp/lt-push/room-created.js /tmp/lt-push/newroom-outage.js /tmp/lt-push/smoke.js /opt/loadtest/
 install -m 755 /tmp/lt-push/chattest.sh /usr/local/bin/chattest
 chmod -R a+rwX /opt/loadtest
 rm -rf /tmp/lt-push
