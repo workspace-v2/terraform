@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Redis 에 등록된 WebSocket 세션 수를 센다 (ws:sessions:<userId> Set 의 원소 합).
 # 실제 연결 수(k6 VU 수)보다 많이 남아 있으면 정리되지 않은 좀비 세션이다.
+# [진행6] 이후 버전은 서버별 heartbeat 상태도 출력한다: servers: <서버ID>(alive|dead,<그 서버가 가진 세션 수>)
 #
 # Usage:
 #   ./scripts/ws-sessions.sh <main|dev>               # 한 번 집계
@@ -29,7 +30,12 @@ for k in $(redis-cli --scan --pattern "ws:sessions:*"); do
   sessions=$((sessions + $(redis-cli SCARD "$k")))
   [ "$(redis-cli TTL "$k")" = "-1" ] && ttl_none=$((ttl_none + 1))
 done
-echo "$(date +%T) users(keys)=$keys sessions=$sessions keys_without_ttl=$ttl_none"'
+servers=""
+for id in $(redis-cli SMEMBERS ws:servers); do
+  alive=dead; [ "$(redis-cli EXISTS "ws:server-alive:$id")" = "1" ] && alive=alive
+  servers="$servers $id($alive,$(redis-cli SCARD "ws:server-sessions:$id"))"
+done
+echo "$(date +%T) users(keys)=$keys sessions=$sessions keys_without_ttl=$ttl_none servers:${servers:- none}"'
 
 once() {
   local params cmd

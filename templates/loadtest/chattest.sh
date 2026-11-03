@@ -4,6 +4,7 @@
 # Usage: chattest <main|dev> [k6 options...]
 #   PAIRS=50 RATE=2 DURATION=180 chattest dev
 #   TASK_IPS=10.20.1.40 chattest main          # 특정 서버만 (기본: Cloud Map 으로 실행 중인 모든 태스크)
+#   SCRIPT=room-created.js OFFSET=0 chattest dev # 다른 시나리오 (기본 chat-consistency.js)
 #
 # 준비: 로컬에서 ./scripts/loadtest-seed.sh <main|dev> 를 먼저 실행 (사용자 시드 + DEV_SECRET 전달)
 set -euo pipefail
@@ -28,7 +29,10 @@ USERS_FILE="$DATA/users-${BASE_ENV}.json"
 [ -f "$USERS_FILE" ] || { echo "$USERS_FILE 없음. 로컬에서 ./scripts/loadtest-seed.sh $BASE_ENV 먼저"; exit 1; }
 DEV_SECRET=$(cat "$DATA/${BASE_ENV}.secret")
 
-TEST_ID="chat-${ENV_NAME}-$(date +%m%d-%H%M%S)"
+SCRIPT="${SCRIPT:-chat-consistency.js}"
+[ -f "/opt/loadtest/$SCRIPT" ] || { echo "/opt/loadtest/$SCRIPT 없음 (loadtest-push.sh)"; exit 1; }
+TEST_ID="${SCRIPT%%-*}-${ENV_NAME}-$(date +%m%d-%H%M%S)"
+[ "$SCRIPT" = "chat-consistency.js" ] && TEST_ID="chat-${ENV_NAME}-$(date +%m%d-%H%M%S)"
 mkdir -p /opt/loadtest/results
 echo "target=$ENV_NAME servers=$TASK_IPS fallback=${SERVICE_HOST:-none} testid=$TEST_ID"
 
@@ -37,4 +41,4 @@ export K6_PROMETHEUS_RW_SERVER_URL="$PROMETHEUS_RW_URL"
 export K6_PROMETHEUS_RW_TREND_STATS="p(50),p(95),p(99),avg,max"
 exec k6 run -o experimental-prometheus-rw \
   --tag testid="$TEST_ID" --tag target_env="$ENV_NAME" \
-  "$@" /opt/loadtest/chat-consistency.js
+  "$@" "/opt/loadtest/$SCRIPT"
