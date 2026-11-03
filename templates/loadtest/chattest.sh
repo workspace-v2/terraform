@@ -7,6 +7,7 @@
 #   SCRIPT=room-created.js OFFSET=0 chattest dev # 다른 시나리오 (기본 chat-consistency.js)
 #   SCRIPT=newroom-outage.js OFFSET=0 chattest dev # Redis 차단 중 새 방 구독 복구 (FIS 시작 직후 실행)
 #   SCRIPT=flood.js chattest main                   # 플러딩 사용자가 정상 사용자에 주는 영향 (단계별 속도)
+#   SCRIPT=http-load.js chattest main               # HTTP API 처리량·병목 (단계별 RPS, BASE_URL 로 ALB 경유)
 #
 # 준비: 로컬에서 ./scripts/loadtest-seed.sh <main|dev> 를 먼저 실행 (사용자 시드 + DEV_SECRET 전달)
 set -euo pipefail
