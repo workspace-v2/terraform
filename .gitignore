@@ -6,3 +6,7 @@
 crash.log
 *.env
 loadtest-results/
+
+# Python monitoring/script tests
+__pycache__/
+*.pyc
