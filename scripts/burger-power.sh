@@ -73,7 +73,7 @@ power() {
       sleep 5
     done
     [ "$remaining" = 0 ] || { echo "App did not reach the desired running count; inspect ECS events." >&2; return 1; }
-    curl --fail --silent --show-error --retry 6 --retry-delay 5 --max-time 30 "$(burger_value ".environments.$env.url")/v1/posts/cursor?limit=1" >/dev/null
+    burger_wait_for_api "$(burger_value ".environments.$env.url")/v1/posts/cursor?limit=1"
     echo "Burgerpedia $env ready."
   fi
 }

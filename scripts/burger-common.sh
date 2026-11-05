@@ -26,3 +26,21 @@ burger_ssm() {
   echo "SSM command timed out: $id" >&2
   return 1
 }
+
+# ECS RUNNING does not guarantee that ALB registration and application startup are complete.
+burger_wait_for_api() {
+  local url="$1" attempt status="000"
+  echo "Waiting for public API readiness: $url"
+  for attempt in $(seq 1 60); do
+    if status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+      --connect-timeout 5 --max-time 5 "$url") && [ "$status" = 200 ]; then
+      return 0
+    fi
+    if [ "$((attempt % 6))" = 0 ]; then
+      echo "Still waiting for API readiness ($attempt/60, HTTP $status)."
+    fi
+    [ "$attempt" = 60 ] || sleep 5
+  done
+  echo "Public API did not become ready (HTTP $status). Servers remain running; inspect ECS events and ALB target health." >&2
+  return 1
+}
