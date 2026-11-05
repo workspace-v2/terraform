@@ -10,3 +10,6 @@ loadtest-results/
 # Python monitoring/script tests
 __pycache__/
 *.pyc
+
+# Reproducible Burgerpedia fixture bundles (SQL and generated manifests)
+loadtest-data/
