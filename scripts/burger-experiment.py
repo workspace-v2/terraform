@@ -168,6 +168,19 @@ def load(args,config):
     receipt(config,args.env,config['load_generator_id'],command,run_id,'load')
 
 
+def quality(args,config):
+    manifest,_=read_bundle(args.bundle)
+    judgments=args.judgments.read_bytes()
+    if json.loads(judgments).get('datasetSha256')!=manifest['datasetSha256']:raise ValueError('judgments belong to another dataset')
+    verify_dataset(config,args.env,manifest)
+    run_id='quality-'+args.env+'-'+uuid.uuid4().hex[:12]
+    script='set -eu\nflock -n /var/lock/burger-benchmark.lock bash -s <<\'BURGER_QUALITY\'\nset -eu\n'
+    script+=upload_script('/opt/loadtest/burger/'+run_id,{'quality.py':(TOOLS/'quality.py').read_bytes(),'judgments.json':judgments})
+    script+=f"python3 quality.py --base-url {shlex.quote(config['environments'][args.env]['url'])} --judgments judgments.json --output quality.json > output.log 2>&1\nBURGER_QUALITY\n"
+    command=submit(config,config['load_generator_id'],script)
+    receipt(config,args.env,config['load_generator_id'],command,run_id,'quality')
+
+
 def fetch(args,config):
     value=json.loads(args.receipt.read_text())
     run_id=value['runId'];instance=value['instance']
@@ -222,12 +235,13 @@ def status(args,config):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest='command',required=True)
-    for name in ['seed','load']:
+    for name in ['seed','load','quality']:
         cmd=sub.add_parser(name);cmd.add_argument('env',choices=['main','dev']);cmd.add_argument('bundle',type=Path)
         if name=='load':
             cmd.add_argument('--experiment',required=True);cmd.add_argument('--rps',type=int,default=10);cmd.add_argument('--seconds',type=int,default=300)
             cmd.add_argument('--warmup',type=int,default=60);cmd.add_argument('--vus',type=int,default=50);cmd.add_argument('--max-vus',type=int,default=500)
             cmd.add_argument('--limit',type=int,default=10);cmd.add_argument('--endpoint',choices=['mixed','menus','reviews','combined'],default='mixed')
+        if name=='quality':cmd.add_argument('--judgments',type=Path,required=True)
     cmd=sub.add_parser('fetch');cmd.add_argument('receipt',type=Path);cmd.add_argument('--output',type=Path,required=True)
     cmd=sub.add_parser('status');cmd.add_argument('receipt',type=Path);cmd.add_argument('--wait',action='store_true')
     args=parser.parse_args()
@@ -235,7 +249,7 @@ def main():
         parser.error('invalid rate/duration/VU/limit bounds')
     try:
         config=configuration()
-        {'seed':seed,'load':load,'fetch':fetch,'status':status}[args.command](args,config)
+        {'seed':seed,'load':load,'quality':quality,'fetch':fetch,'status':status}[args.command](args,config)
     except (ValueError,KeyError,subprocess.CalledProcessError) as e:parser.exit(1,str(e)+'\n')
 
 if __name__=='__main__':main()
