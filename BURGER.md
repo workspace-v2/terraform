@@ -91,7 +91,7 @@ gh variable set BURGER_DEPLOY_ENABLED --repo workspace-v2/community-service --bo
 ```
 
 - 중지: 배포 진행 여부 확인 → 태스크 수 기록 → 0으로 축소 → 태스크 실제 종료 확인 → DB·Redis 중지.
-- 시작: DB·Redis 시작 → 인스턴스 상태·cloud-init·서비스 확인 → 태스크 수 복원 → API 확인.
+- 시작: DB·Redis 시작 → 인스턴스 상태·cloud-init·서비스 확인 → 태스크 수 복원 → 공개 API가 HTTP 200이 될 때까지 확인. 일시적인 502·503·연결 오류는 5초 간격으로 최대 60회 재확인하며, 실패해도 서버를 다시 끄지는 않습니다.
 - 진행 중인 CodeDeploy 배포를 찾거나 상태 확인에 실패하면 전원 변경을 중단합니다.
 - 재적용으로 중지 환경을 켜지 않도록 desired_count와 저장 태그는 Terraform drift 검사에서 제외합니다.
 - 공통 모니터링·부하테스트기는 이 스크립트가 중지하지 않습니다.
@@ -151,8 +151,7 @@ CloudFront OAC를 사용하며 이미지 경로만 CDN에서 읽을 수 있습�
 로그는 환경별 CloudWatch Log Group에 14일 보관합니다.
 MySQL·Redis의 EC2/EBS 스냅샷 정기 백업은 이번 구성에 추가하지 않았습니다.
 
-도메인 전환은 아직 수행하지 않습니다. 앱 코드 변경은 메트릭 의존성·내부 management 접근·
-ECS 프로필·종목 동기화 비활성화 스위치로 제한합니다. 새 배포에는 종목 서버 연결이 필요 없습니다.
+기존 게시글 CRUD는 메뉴·평점·태그가 있는 버거 리뷰로 전환했습니다. 메뉴·리뷰 검색은 MySQL LIKE 기반이며, 커뮤니티 내부 종목 조회·동기화 코드는 제거했습니다. 새 배포에는 종목 서버 연결이 필요 없습니다.
 Elasticsearch는 Redis/ElastiCache와 다른 검색엔진이며 이번에 생성하지 않습니다.
 검색 도입 때 전용 검색 노드와 동기화·모니터링을 별도 추가합니다.
 
@@ -177,3 +176,7 @@ python3 -m unittest discover -s tests -v
 - 사용자 승인 후 BURGER_DEPLOY_ENABLED=true를 설정했습니다. 워크플로를 원격에 푸시하면 브랜치별 자동 배포가 활성화됩니다.
 - GitHub Actions의 실제 OIDC 실행은 해당 워크플로 커밋을 원격에 푸시한 뒤 검증해야 합니다.
 - 장애를 주입하는 자동 롤백 검증과 데이터 복구 실험은 별도 작업입니다.
+
+## 검색 실험 데이터·부하·품질 평가
+
+버거 도메인 전환 이후의 재현 가능한 데이터 생성, main/dev 검색 부하 비교, 수동 정답 기반 품질 평가는 [검색 실험 가이드](monitoring/burger/EXPERIMENTS.md)를 참고합니다. 기존 `burger-loadtest.sh`는 인프라 smoke용으로 유지하며 새 검색 실험은 `scripts/burger-experiment.py`로 실행합니다.
