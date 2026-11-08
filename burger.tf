@@ -57,3 +57,8 @@ resource "aws_iam_role_policy" "burger_monitoring_discovery" {
     ]
   })
 }
+
+output "burger_search" {
+  description = "Non-secret single-node search configuration; passwords are stored in SSM."
+  value       = module.burger.search
+}

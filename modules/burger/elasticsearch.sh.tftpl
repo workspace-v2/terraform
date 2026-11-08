@@ -1,0 +1,122 @@
+#!/bin/bash
+set -euo pipefail
+${common}
+set -euo pipefail
+# No xtrace: parameters are fetched at boot, never embedded in EC2 user-data.
+apt-get install -y docker.io docker-compose-v2 python3-boto3
+systemctl enable --now docker
+sysctl -w vm.max_map_count=1048576
+echo 'vm.max_map_count=1048576' > /etc/sysctl.d/90-elasticsearch.conf
+mkdir -p /opt/burger-search /var/lib/burger-search
+volume_serial=$(echo '${volume_id}' | tr -d '-')
+device=""
+for attempt in $(seq 1 180); do
+  device=$(lsblk -dn -o PATH,SERIAL | awk -v serial="$volume_serial" '$2==serial {print $1}')
+  [ -z "$device" ] || break
+  sleep 5
+done
+[ -n "$device" ] || { echo 'Data volume did not attach'; exit 1; }
+# Only initialize a blank new data disk. Never format an existing filesystem.
+if ! blkid "$device" >/dev/null 2>&1; then mkfs.ext4 "$device"; fi
+uuid=$(blkid -s UUID -o value "$device")
+grep -q "UUID=$uuid " /etc/fstab || echo "UUID=$uuid /var/lib/burger-search ext4 defaults,nofail 0 2" >> /etc/fstab
+mountpoint -q /var/lib/burger-search || mount /var/lib/burger-search
+mkdir -p /var/lib/burger-search/data
+chown 1000:0 /var/lib/burger-search/data
+chmod 750 /var/lib/burger-search/data
+umask 077
+mkdir -p /opt/burger-search/secrets
+for pair in 'admin:${admin_param}' 'reader:${reader_param}' 'monitor:${monitor_param}'; do
+  name=$(echo "$pair" | cut -d: -f1)
+  param=$(echo "$pair" | cut -d: -f2-)
+  python3 - '${region}' "$param" > "/opt/burger-search/secrets/$name" <<'PARAMETER'
+import sys,boto3
+value=boto3.client('ssm',region_name=sys.argv[1]).get_parameter(Name=sys.argv[2],WithDecryption=True)['Parameter']['Value']
+print(value)
+PARAMETER
+done
+chown 1000:0 /opt/burger-search/secrets/admin
+chmod 400 /opt/burger-search/secrets/admin
+# Elasticsearch 9.2 requires secret files to use mode 400 or 600.
+cat > /opt/burger-search/compose.yml <<'COMPOSE'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${version}
+    restart: unless-stopped
+    mem_limit: 2g
+    environment:
+      cluster.name: burger-search
+      node.name: burger-search-01
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.autoconfiguration.enabled: "false"
+      # Isolated VPC benchmark endpoint. No internet ingress; auth remains enabled.
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD_FILE: /run/secrets/admin
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports: ["9200:9200"]
+    volumes:
+      - /var/lib/burger-search/data:/usr/share/elasticsearch/data
+      - /opt/burger-search/secrets/admin:/run/secrets/admin:ro
+    ulimits:
+      nofile: {soft: 65535, hard: 65535}
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.11.0
+    restart: unless-stopped
+    env_file: exporter.env
+    command: ["--es.uri=http://elasticsearch:9200", "--es.all", "--es.timeout=10s"]
+    ports: ["9114:9114"]
+    depends_on: [elasticsearch]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+COMPOSE
+cat > /opt/burger-search/setup.py <<'PY'
+import json,time,base64,urllib.request,urllib.error,http.client
+from pathlib import Path
+base=Path('/opt/burger-search')
+password=(base/'secrets/admin').read_text().strip()
+auth='Basic '+base64.b64encode(('elastic:'+password).encode()).decode()
+def request(path,data=None):
+    req=urllib.request.Request('http://127.0.0.1:9200'+path,data=None if data is None else json.dumps(data).encode(),headers={'Authorization':auth,'Content-Type':'application/json'},method='GET' if data is None else 'PUT')
+    with urllib.request.urlopen(req,timeout=10) as r:return json.load(r)
+for attempt in range(120):
+    try:request('/');break
+    except (urllib.error.URLError,TimeoutError,http.client.RemoteDisconnected,ConnectionError):time.sleep(5)
+else:raise RuntimeError('Elasticsearch readiness timeout')
+request('/_security/role/burger_search_reader',{'cluster':[],'indices':[{'names':['burger-*'],'privileges':['read','view_index_metadata']}]})
+request('/_security/user/burger_search',{'password':(base/'secrets/reader').read_text().strip(),'roles':['burger_search_reader']})
+request('/_security/role/burger_search_monitor',{'cluster':['monitor'],'indices':[]})
+request('/_security/user/burger_monitor',{'password':(base/'secrets/monitor').read_text().strip(),'roles':['burger_search_monitor']})
+(base/'exporter.env').write_text('ES_USERNAME=burger_monitor\nES_PASSWORD='+(base/'secrets/monitor').read_text().strip()+'\n')
+(base/'exporter.env').chmod(0o600)
+print('Elasticsearch authentication and read-only search user ready')
+PY
+cat > /etc/systemd/system/burger-search.service <<'UNIT'
+[Unit]
+Description=Burgerpedia single-node Elasticsearch benchmark
+Requires=docker.service
+After=docker.service network-online.target
+RequiresMountsFor=/var/lib/burger-search
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/burger-search
+ExecStartPre=/usr/bin/mountpoint -q /var/lib/burger-search
+ExecStart=/usr/bin/docker compose up -d elasticsearch
+ExecStart=/usr/bin/python3 /opt/burger-search/setup.py
+ExecStart=/usr/bin/docker compose up -d exporter
+ExecStop=/usr/bin/docker compose stop -t 60
+TimeoutStartSec=900
+TimeoutStopSec=180
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now burger-search
+
+touch /opt/burger-search/bootstrap-complete
