@@ -3,6 +3,8 @@
 `personal-project` AWS CLI 프로필로 서울 리전(`ap-northeast-2`)에 배포합니다.
 Git 브랜치 이름이 곧 환경 이름입니다 (`main`, `dev`).
 
+kubeadm 실습용 EC2·보안 그룹·IAM·FIS는 [k8s-pilot Terraform 구성](k8s-pilot/README.md)에서 별도 상태로 관리합니다.
+
 ```
                      ┌────────── VPC 10.20.0.0/16 · public subnets 10.20.1.0/24 (a), 10.20.2.0/24 (c) ──────────┐
  internet ─443/80─▶  │  ALB (ACM TLS, Host 헤더 분기)                                                           │
